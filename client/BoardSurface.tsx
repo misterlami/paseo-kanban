@@ -13,6 +13,7 @@ import {
   type BoardData,
   type Card,
   type DisplaySettings,
+  type Run,
 } from "../shared/model";
 import {
   applyBoardOperations,
@@ -21,11 +22,13 @@ import {
   createId,
   type BoardOperation,
 } from "../shared/operations";
+import { canContinueAgent } from "../shared/runState";
 import { boardDataSettings, displaySettings } from "../shared/settings";
 import { BoardColumn as BoardColumnView } from "./BoardColumn";
 import {
   AgentLauncherPanel,
   type AgentLauncherState,
+  CardDetailsPanel,
   CardEditorPanel,
   type EditorState,
   ImportPanel,
@@ -84,6 +87,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const [projectFilter, setProjectFilter] = useState("");
   const [filter, setFilter] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<NullableString>(null);
   const [runCardId, setRunCardId] = useState<NullableString>(null);
   const [launcher, setLauncher] = useState<AgentLauncherState | null>(null);
   const [startingAgent, setStartingAgent] = useState(false);
@@ -197,16 +201,18 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     if (boardSettings.status !== "ready" || directory.agents.length === 0) return;
     if (reconciling.current) return;
     const links = directory.agents.flatMap((agent) => {
-      const workspace = agent.workspaceId;
-      if (!workspace) return [];
+      const workspaceId = agent.workspaceId;
+      if (!workspaceId) return [];
+      const workspace = directory.workspaces.find((candidate) => candidate.id === workspaceId);
       return [
         {
           agentId: agent.id,
-          workspaceId: workspace,
+          workspaceId,
           provider: agent.provider,
           createdAt: agent.createdAt,
           updatedAt: agent.updatedAt,
           labels: agent.labels,
+          workspaceName: workspace?.title ?? workspace?.name ?? null,
         },
       ];
     });
@@ -224,7 +230,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       .finally(() => {
         reconciling.current = false;
       });
-  }, [boardSettings, directory.agents, persistOperations, toast]);
+  }, [boardSettings, directory.agents, directory.workspaces, persistOperations, toast]);
 
   const action = useCallback(
     async (operations: readonly BoardOperation[], success?: string) => {
@@ -296,6 +302,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     setProjectPickerOpen(false);
     setProjectFilter("");
     setEditor(null);
+    setSelectedCardId(null);
     setRunCardId(null);
     setLauncher(null);
     void persistDisplay((values) => ({ ...values, selectedProjectId: projectId })).catch((cause) =>
@@ -339,12 +346,17 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   };
 
   const openLauncher = (card: Card) => {
+    const latestRun = boardSettings.values.runs
+      .filter((run) => run.cardId === card.id)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+    setEditor(null);
+    setSelectedCardId(null);
     setRunCardId(card.id);
     setLauncher(withLauncherDefaults({
       action: "start",
-      agentProfileId: null,
+      agentProfileId: latestRun?.agentProfileId ?? null,
       workspaceMode: "existing",
-      workspaceId: null,
+      workspaceId: latestRun?.workspaceId ?? null,
       workspaceTitle: `${card.key}: ${card.title}`,
       baseRef: "",
       branchName: "",
@@ -381,6 +393,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         if (boardSettings.values.runs.some((run) => run.agentId === agent.id)) {
           throw new Error("The selected agent is already attached to a card.");
         }
+        const workspace = projectWorkspaces.find((candidate) => candidate.id === agent.workspaceId);
         const operations: BoardOperation[] = [
           {
             type: "add-run",
@@ -392,12 +405,14 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
               provider: agent.provider,
               agentProfileId: null,
               agentProfileName: null,
-              createdAt: agent.createdAt,
-              updatedAt: agent.updatedAt,
+              workspaceName: workspace?.title ?? workspace?.name ?? null,
+              branchName: null,
+              createdAt: now,
+              updatedAt: now,
             },
           },
         ];
-        if (card.column === "todo") {
+        if (card.column === "todo" || card.column === "in_review") {
           operations.push({
             type: "move-card",
             cardId: card.id,
@@ -417,6 +432,8 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       if (!profile) throw new Error("Select an available agent profile.");
 
       let resolvedWorkspaceId = launcher.workspaceId;
+      let createdWorkspaceName: string | null = null;
+      let createdBranchName: string | null = null;
       if (launcher.workspaceMode === "new") {
         const project = directory.projects.find((candidate) => candidate.projectId === selectedProjectId);
         if (!project || project.projectKind !== "git") {
@@ -436,6 +453,8 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           },
         });
         resolvedWorkspaceId = workspace.id;
+        createdWorkspaceName = launcher.workspaceTitle.trim() || `${card.key}: ${card.title}`;
+        createdBranchName = branchName || null;
         setLauncher((current) =>
           current
             ? { ...current, workspaceMode: "existing", workspaceId: workspace.id }
@@ -459,6 +478,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           [AGENT_LABELS.cardId]: card.id,
           [AGENT_LABELS.runId]: runId,
           [AGENT_LABELS.agentProfileId]: profile.id,
+          [AGENT_LABELS.cardKey]: card.key,
         },
         prompt: [
           `Work on ${card.key}: ${card.title}.`,
@@ -479,12 +499,18 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
             provider: profile.provider,
             agentProfileId: profile.id,
             agentProfileName: profile.name,
+            workspaceName:
+              createdWorkspaceName ??
+              projectWorkspaces.find((workspace) => workspace.id === resolvedWorkspaceId)?.title ??
+              projectWorkspaces.find((workspace) => workspace.id === resolvedWorkspaceId)?.name ??
+              null,
+            branchName: createdBranchName,
             createdAt: agent.current()?.createdAt ?? now,
             updatedAt: agent.current()?.updatedAt ?? now,
           },
         },
       ];
-      if (card.column === "todo") {
+      if (card.column === "todo" || card.column === "in_review") {
         operations.push({
           type: "move-card",
           cardId: card.id,
@@ -500,6 +526,76 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       toast.error(errorMessage(cause));
     } finally {
       setStartingAgent(false);
+    }
+  };
+
+  const latestRunForCard = (cardId: string): Run | undefined =>
+    boardSettings.values.runs
+      .filter((run) => run.cardId === cardId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+
+  const requestChanges = async (card: Card) => {
+    const latestRun = latestRunForCard(card.id);
+    const agent = latestRun
+      ? directory.agents.find((candidate) => candidate.id === latestRun.agentId)
+      : undefined;
+
+    if (
+      agent &&
+      (agent.attentionReason === "permission" ||
+        agent.status === "running" ||
+        agent.status === "initializing")
+    ) {
+      navigation?.openAgent({ agentId: agent.id, serverId: host.id });
+      toast.show(
+        agent.attentionReason === "permission"
+          ? "Resolve the pending permission before requesting changes."
+          : "The current agent is still active.",
+        { variant: "warning" },
+      );
+      return;
+    }
+
+    if (latestRun && canContinueAgent(agent)) {
+      try {
+        await paseo.agents.ref(latestRun.agentId).send(
+          [
+            `Please address the requested changes for ${card.key}: ${card.title}.`,
+            card.description,
+            "Re-check the requirements and report the changes and any remaining work.",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        );
+        await persistOperations([
+          {
+            type: "move-card",
+            cardId: card.id,
+            column: "in_progress",
+            index: cardsInColumn(boardSettings.values, card.boardId, "in_progress").length,
+            now: new Date().toISOString(),
+          },
+        ]);
+        toast.show("Changes requested from the current agent", { variant: "success" });
+      } catch (cause) {
+        toast.error(errorMessage(cause));
+      }
+      return;
+    }
+
+    try {
+      await action([
+        {
+          type: "move-card",
+          cardId: card.id,
+          column: "in_progress",
+          index: cardsInColumn(boardSettings.values, card.boardId, "in_progress").length,
+          now: new Date().toISOString(),
+        },
+      ]);
+      openLauncher(card);
+    } catch {
+      // The card stays in review and the launcher stays closed.
     }
   };
 
@@ -560,9 +656,11 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         <Pressable
           accessibilityRole="button"
           disabled={!board}
-          onPress={() =>
-            setEditor({ mode: "create", cardId: null, title: "", description: "", column: "backlog" })
-          }
+          onPress={() => {
+            setSelectedCardId(null);
+            closeLauncher();
+            setEditor({ mode: "create", cardId: null, title: "", description: "", column: "backlog" });
+          }}
           style={[styles.button, styles.primaryButton]}
         >
           <Text style={[styles.buttonText, styles.primaryButtonText]}>New card</Text>
@@ -606,6 +704,36 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           styles={styles}
         />
       ) : null}
+
+      {selectedCardId ? (() => {
+        const card = boardSettings.values.cards.find((candidate) => candidate.id === selectedCardId);
+        return card ? (
+          <CardDetailsPanel
+            agents={directory.agents}
+            card={card}
+            onClose={() => setSelectedCardId(null)}
+            onNewAttempt={(selected) => {
+              setSelectedCardId(null);
+              openLauncher(selected);
+            }}
+            onOpenAgent={
+              navigation
+                ? (agentId) => navigation.openAgent({ agentId, serverId: host.id })
+                : undefined
+            }
+            runs={boardSettings.values.runs}
+            statusPalette={{
+              accent: theme.colors.accent,
+              danger: theme.colors.statusDanger,
+              muted: theme.colors.foregroundMuted,
+              success: theme.colors.statusSuccess,
+              warning: theme.colors.statusWarning,
+            }}
+            styles={styles}
+            workspaces={directory.workspaces}
+          />
+        ) : null;
+      })() : null}
 
       {runCardId && launcher ? (
         <AgentLauncherPanel
@@ -672,15 +800,22 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                     .then(() => setConfirmDeleteCardId(null))
                     .catch(() => undefined);
                 }}
-                onEdit={(card) =>
+                onEdit={(card) => {
+                  setSelectedCardId(null);
+                  closeLauncher();
                   setEditor({
                     mode: "edit",
                     cardId: card.id,
                     title: card.title,
                     description: card.description,
                     column: card.column,
-                  })
-                }
+                  });
+                }}
+                onViewDetails={(card) => {
+                  setEditor(null);
+                  closeLauncher();
+                  setSelectedCardId(card.id);
+                }}
                 onMove={moveCard}
                 onMoveToEnd={(card, column) =>
                   moveCard(
@@ -694,19 +829,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                     ? (agentId) => navigation.openAgent({ agentId, serverId: host.id })
                     : undefined
                 }
-                onRequestChanges={(card) => {
-                  void action([
-                    {
-                      type: "move-card",
-                      cardId: card.id,
-                      column: "in_progress",
-                      index: cardsInColumn(boardSettings.values, board.id, "in_progress").length,
-                      now: new Date().toISOString(),
-                    },
-                  ])
-                    .then(() => openLauncher(card))
-                    .catch(() => undefined);
-                }}
+                onRequestChanges={(card) => void requestChanges(card)}
                 onRun={openLauncher}
                 runs={boardSettings.values.runs}
                 statusPalette={{

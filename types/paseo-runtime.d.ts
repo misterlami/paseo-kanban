@@ -56,6 +56,7 @@ declare module "@getpaseo/client" {
   export interface PaseoAgentHandle {
     id: string;
     current(): PaseoAgent | null;
+    send(text: string, options?: { messageId?: string }): Promise<void>;
   }
 
   export interface AgentProfile {
@@ -171,6 +172,7 @@ declare module "@getpaseo/client" {
             | { kind: "remove"; agentId: string },
         ) => void,
       ): () => void;
+      ref(agent: string | PaseoAgent): PaseoAgentHandle;
     };
     providers: {
       waitForReady(): Promise<{ entries: ProviderSnapshotEntry[] }>;

@@ -10,7 +10,7 @@ A native Kanban board for [Paseo](https://paseo.sh/) that organizes agent work w
 - Keep cards stable across retries, follow-ups, agent archival, and plugin reloads.
 - Link each execution attempt to its Paseo agent and workspace.
 - Surface running, blocked, failed, finished, and archived execution states on cards.
-- Open the latest linked agent from a card.
+- Inspect every linked run and open any linked agent from a card.
 - Work in wide, compact, light, and dark Paseo layouts.
 
 ## Domain model
@@ -36,7 +36,7 @@ A card owns workflow state. A run owns execution state. Completing an agent turn
 | Columns | Backlog, Ready, In Progress, In Review, Done |
 | Execution | User starts a profiled agent or attaches an existing unlinked project agent |
 | Workspace | User selects an existing workspace or creates a Git worktree with optional base ref and branch name |
-| Agent updates | Live status badges with reconnect reconciliation |
+| Agent updates | Live status badges, complete run history, and reconnect reconciliation |
 | Card movement | Explicit controls with accessibility labels |
 | Agent launch | Ready, In Progress, and In Review cards; Backlog and Done move to Ready first |
 | Persistence | Paseo host-scoped settings documents |
@@ -46,7 +46,7 @@ A card owns workflow state. A run owns execution state. Completing an agent turn
 
 | Layer | Responsibility |
 | --- | --- |
-| Client entry | Register the board surface, sidebar row, and Command Center entry |
+| Client entry | Register the board surface, agent panel, composer pill, attachment source, sidebar row, and Command Center entries |
 | Client UI | Render the board using [React Native](https://reactnative.dev/) primitives and Paseo theme tokens |
 | Shared | Define schemas, RPC contracts, domain values, migrations, and pure card operations |
 | Server entry | Register settings and any daemon-side handlers or lifecycle observers |
@@ -62,8 +62,10 @@ The initial compatibility target is Paseo `>=0.10.2 <0.11.0`. Paseo 0.10.2 expos
 3. Start a new agent, or attach an existing unlinked agent from the selected project, and link its agent and workspace IDs to a new run.
 4. Move the card to In Progress after agent creation succeeds.
 5. Overlay agent runtime state without replacing the card's workflow state.
-6. Suggest review when a run finishes; leave the actual transition to the user.
-7. Reconcile missing links from agent labels after reconnect or plugin reload.
+6. Inspect all attempts from the card or the linked agent workspace panel.
+7. Continue an eligible idle agent when requesting changes, or create a distinct attempt with the prior profile and workspace preselected.
+8. Suggest review when a run finishes; leave the actual transition to the user.
+9. Reconcile missing links from agent labels after reconnect or plugin reload.
 
 ## Included in 0.1
 
@@ -74,14 +76,15 @@ The initial compatibility target is Paseo `>=0.10.2 <0.11.0`. Paseo 0.10.2 expos
 - Configured Paseo agent profiles instead of separate provider and model controls.
 - Explicit existing-workspace selection or new Git worktree creation, including optional workspace title, base ref, and branch name.
 - Existing unlinked project agents can be attached to a card without replacing their agent or workspace identity.
-- Durable run records, latest-agent status and navigation, and label-based reconciliation.
+- Durable run records with profile, workspace, branch, timestamps, live status, navigation, and label-based reconciliation.
 - Column-aware actions: Start agent in Ready; Open agent and New attempt in In Progress; Request changes and Mark Done in In Review.
+- Agent workspace panel with linked-card context, run history, and explicit review actions.
+- Composer pills that open the linked card panel and a searchable card attachment source.
 - Conflict retry for small persisted operations.
 - Sidebar and Command Center navigation.
 
 ## Deferred
 
-- Agent workspace panel, composer pill, and card attachment source.
 - Drag and drop, after keyboard, mobile, and accessibility behavior is defined.
 - Cross-host synchronization and shared multi-user boards.
 - **Schedules**

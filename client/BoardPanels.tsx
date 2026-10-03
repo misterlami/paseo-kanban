@@ -1,7 +1,14 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { AgentProfile } from "../shared/agentProfiles";
-import { BOARD_COLUMNS, BOARD_COLUMN_LABELS, type BoardColumn } from "../shared/model";
+import {
+  BOARD_COLUMNS,
+  BOARD_COLUMN_LABELS,
+  type BoardColumn,
+  type Card,
+  type Run,
+} from "../shared/model";
+import { runStatus, type RunStatusTone } from "../shared/runState";
 import type { BoardStyles } from "./useBoardStyles";
 import type { AgentSummary, WorkspaceSummary } from "./usePaseoDirectory";
 
@@ -50,6 +57,11 @@ function ChoiceIndicator({ selected, styles }: { selected: boolean; styles: Boar
       {selected ? <View style={styles.choiceIndicatorDot} /> : null}
     </View>
   );
+}
+
+function formatTimestamp(value: string): string {
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString();
 }
 
 export interface EditorState {
@@ -132,6 +144,110 @@ export function CardEditorPanel({
           <Text style={styles.buttonText}>Cancel</Text>
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+interface CardDetailsPanelProps {
+  agents: readonly AgentSummary[];
+  card: Card;
+  onClose: () => void;
+  onNewAttempt: (card: Card) => void;
+  onOpenAgent: ((agentId: string) => void) | undefined;
+  runs: readonly Run[];
+  statusPalette: Record<RunStatusTone, string>;
+  styles: BoardStyles;
+  workspaces: readonly WorkspaceSummary[];
+}
+
+export function CardDetailsPanel({
+  agents,
+  card,
+  onClose,
+  onNewAttempt,
+  onOpenAgent,
+  runs,
+  statusPalette,
+  styles,
+  workspaces,
+}: CardDetailsPanelProps) {
+  const history = runs
+    .filter((run) => run.cardId === card.id)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+  return (
+    <View style={styles.panel}>
+      <View style={styles.detailsHeader}>
+        <View style={styles.detailsHeading}>
+          <Text style={styles.cardKey}>{card.key}</Text>
+          <Text style={styles.launcherTitle}>{card.title}</Text>
+        </View>
+        <Pressable accessibilityRole="button" onPress={onClose} style={styles.button}>
+          <Text style={styles.buttonText}>Close</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.detailsStatus}>{BOARD_COLUMN_LABELS[card.column]}</Text>
+      {card.description ? <Text style={styles.text}>{card.description}</Text> : null}
+
+      <View style={styles.detailsSectionHeader}>
+        <Text style={styles.sectionLabel}>Run history</Text>
+        <Text style={styles.muted}>{history.length} {history.length === 1 ? "attempt" : "attempts"}</Text>
+      </View>
+      {history.length === 0 ? (
+        <Text style={styles.muted}>No agents have been linked to this card.</Text>
+      ) : (
+        <ScrollView style={styles.runHistory}>
+          <View style={styles.runHistoryContent}>
+            {history.map((run, index) => {
+              const agent = agents.find((candidate) => candidate.id === run.agentId);
+              const workspace = workspaces.find((candidate) => candidate.id === run.workspaceId);
+              const status = runStatus(agent);
+              const workspaceName = workspace?.title ?? workspace?.name ?? run.workspaceName;
+              const updatedAt = agent?.updatedAt ?? run.updatedAt;
+              const attempt = history.length - index;
+
+              return (
+                <View key={run.id} style={styles.runRow}>
+                  <View style={styles.runHeader}>
+                    <Text style={styles.runTitle}>Attempt {attempt}</Text>
+                    {index === 0 ? <Text style={styles.reviewCandidate}>Review candidate</Text> : null}
+                    <View style={[styles.badge, { backgroundColor: statusPalette[status.tone] }]}>
+                      <Text style={styles.badgeText}>{status.label}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.runMetadata}>
+                    <Text style={styles.muted}>
+                      Profile: {run.agentProfileName ?? agent?.model ?? run.provider}
+                    </Text>
+                    <Text style={styles.muted}>Workspace: {workspaceName ?? "Unavailable"}</Text>
+                    {run.branchName ? <Text style={styles.muted}>Branch: {run.branchName}</Text> : null}
+                    <Text style={styles.muted}>Started: {formatTimestamp(run.createdAt)}</Text>
+                    <Text style={styles.muted}>Updated: {formatTimestamp(updatedAt)}</Text>
+                  </View>
+                  {onOpenAgent ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => onOpenAgent(run.agentId)}
+                      style={styles.button}
+                    >
+                      <Text style={styles.buttonText}>Open agent</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      )}
+      {card.column !== "backlog" && card.column !== "done" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onNewAttempt(card)}
+          style={[styles.button, styles.detailsAction]}
+        >
+          <Text style={styles.buttonText}>New attempt</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

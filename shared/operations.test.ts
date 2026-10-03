@@ -9,6 +9,8 @@ import {
 } from "./operations";
 import { migrateBoardData } from "./settings";
 import { materializeAgentProfile } from "./agentProfiles";
+import { findCardAttachments, searchKanbanCards } from "./cardAttachments";
+import { canContinueAgent, runStatus } from "./runState";
 
 const NOW = "2026-10-02T12:00:00.000Z";
 
@@ -103,6 +105,8 @@ test("deleting a card removes its runs", () => {
     provider: "codex/gpt-6.1-sol",
     agentProfileId: null,
     agentProfileName: null,
+    workspaceName: "main",
+    branchName: null,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -119,6 +123,7 @@ test("reconciles a labeled agent idempotently", () => {
     agentId: "agent_1",
     workspaceId: "workspace_1",
     provider: "codex/gpt-6.1-sol",
+    workspaceName: "main",
     createdAt: NOW,
     updatedAt: NOW,
     labels: {
@@ -134,6 +139,7 @@ test("reconciles a labeled agent idempotently", () => {
   assert.equal(data.runs.length, 1);
   assert.equal(data.runs[0]?.agentId, "agent_1");
   assert.equal(data.runs[0]?.agentProfileId, "agent_profile_1");
+  assert.equal(data.runs[0]?.workspaceName, "main");
 });
 
 test("does not rewrite a run when agent labels conflict", () => {
@@ -146,6 +152,8 @@ test("does not rewrite a run when agent labels conflict", () => {
     provider: "codex/gpt-6.1-sol",
     agentProfileId: null,
     agentProfileName: null,
+    workspaceName: "main",
+    branchName: null,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -157,6 +165,7 @@ test("does not rewrite a run when agent labels conflict", () => {
         agentId: "agent_2",
         workspaceId: "workspace_2",
         provider: "codex/gpt-6.1-sol",
+        workspaceName: "review",
         createdAt: NOW,
         updatedAt: NOW,
         labels: {
@@ -171,6 +180,48 @@ test("does not rewrite a run when agent labels conflict", () => {
   assert.equal(data.runs.length, 1);
   assert.equal(data.runs[0]?.agentId, "agent_1");
   assert.equal(data.runs[0]?.workspaceId, "workspace_1");
+});
+
+test("reconciliation preserves when an existing run was attached", () => {
+  let data = addCard(boardData(), "card_1");
+  const attachedAt = "2026-10-02T14:00:00.000Z";
+  data = applyBoardOperation(data, {
+    type: "add-run",
+    run: {
+      id: "run_1",
+      cardId: "card_1",
+      agentId: "agent_1",
+      workspaceId: "workspace_1",
+      provider: "codex",
+      agentProfileId: null,
+      agentProfileName: null,
+      workspaceName: "main",
+      branchName: null,
+      createdAt: attachedAt,
+      updatedAt: attachedAt,
+    },
+  });
+  data = applyBoardOperation(data, {
+    type: "reconcile-runs",
+    agents: [
+      {
+        agentId: "agent_1",
+        workspaceId: "workspace_1",
+        workspaceName: "main",
+        provider: "codex",
+        createdAt: NOW,
+        updatedAt: NOW,
+        labels: {
+          "kanban.boardId": "board_1",
+          "kanban.cardId": "card_1",
+          "kanban.runId": "run_1",
+        },
+      },
+    ],
+  });
+
+  assert.equal(data.runs[0]?.createdAt, attachedAt);
+  assert.equal(data.runs[0]?.updatedAt, attachedAt);
 });
 
 test("rejects card content outside persistence limits", () => {
@@ -189,7 +240,7 @@ test("rejects card content outside persistence limits", () => {
   );
 });
 
-test("migrates version 1 runs without profile metadata", () => {
+test("migrates version 1 runs to current run metadata", () => {
   const old = {
     ...addCard(boardData(), "card_1"),
     version: 1,
@@ -207,14 +258,85 @@ test("migrates version 1 runs without profile metadata", () => {
   };
   const migrated = BoardDataSchema.parse(migrateBoardData(old, 1));
 
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.equal(migrated.runs[0]?.agentProfileId, null);
   assert.equal(migrated.runs[0]?.agentProfileName, null);
+  assert.equal(migrated.runs[0]?.workspaceName, null);
+  assert.equal(migrated.runs[0]?.branchName, null);
+});
+
+test("migrates version 2 runs with profile metadata", () => {
+  const current = addCard(boardData(), "card_1");
+  const old = {
+    ...current,
+    version: 2,
+    runs: [
+      {
+        id: "run_1",
+        cardId: "card_1",
+        agentId: "agent_1",
+        workspaceId: "workspace_1",
+        provider: "codex",
+        agentProfileId: "profile_1",
+        agentProfileName: "Reviewer",
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    ],
+  };
+  const migrated = BoardDataSchema.parse(migrateBoardData(old, 2));
+
+  assert.equal(migrated.runs[0]?.agentProfileName, "Reviewer");
+  assert.equal(migrated.runs[0]?.workspaceName, null);
+});
+
+test("presents agent states and only continues eligible idle agents", () => {
+  assert.deepEqual(runStatus(undefined), { label: "Agent missing", tone: "warning" });
+  assert.deepEqual(
+    runStatus({ status: "idle", attentionReason: "permission" }),
+    { label: "Permission required", tone: "warning" },
+  );
+  assert.deepEqual(
+    runStatus({ status: "error", attentionReason: "error" }),
+    { label: "Error", tone: "danger" },
+  );
+  assert.deepEqual(
+    runStatus({ status: "idle", attentionReason: "finished" }),
+    { label: "Review suggested", tone: "success" },
+  );
+  assert.deepEqual(runStatus({ status: "running" }), { label: "Running", tone: "accent" });
+  assert.deepEqual(runStatus({ status: "closed" }), { label: "Closed", tone: "muted" });
+  assert.deepEqual(
+    runStatus({ status: "idle", archivedAt: NOW }),
+    { label: "Archived", tone: "muted" },
+  );
+  assert.equal(canContinueAgent({ status: "idle", attentionReason: "finished" }), true);
+  assert.equal(canContinueAgent({ status: "running" }), false);
+  assert.equal(canContinueAgent({ status: "idle", archivedAt: NOW }), false);
+});
+
+test("builds searchable card attachment snapshots", () => {
+  let data = addCard(boardData(), "card_1", "todo");
+  data = applyBoardOperation(data, {
+    type: "update-card",
+    cardId: "card_1",
+    title: "Repair reconciliation",
+    description: "Keep agent links stable after reconnect.",
+    now: NOW,
+  });
+
+  const items = findCardAttachments(data, "reconnect");
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.identifier, "PK-1");
+  assert.match(items[0]?.text ?? "", /Status: Ready/);
+  assert.match(items[0]?.url ?? "", /^paseo:\/\/kanban\/card\//);
+  assert.equal(searchKanbanCards.output.safeParse({ items }).success, true);
+  assert.equal(findCardAttachments(data, "missing").length, 0);
 });
 
 test("rejects unsupported settings versions instead of resetting data", () => {
-  assert.throws(() => migrateBoardData({ version: 3 }, 3), /Cannot migrate/);
-  assert.equal(BoardDataSchema.safeParse({ version: 3, boards: [], cards: [], runs: [] }).success, false);
+  assert.throws(() => migrateBoardData({ version: 4 }, 4), /Cannot migrate/);
+  assert.equal(BoardDataSchema.safeParse({ version: 4, boards: [], cards: [], runs: [] }).success, false);
 });
 
 test("rejects imports with broken record relationships", () => {

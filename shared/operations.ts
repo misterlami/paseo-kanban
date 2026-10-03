@@ -49,6 +49,7 @@ export interface AgentLink {
   provider: string;
   createdAt: string;
   updatedAt: string;
+  workspaceName: string | null;
   labels: Record<string, string>;
 }
 
@@ -221,8 +222,13 @@ export function applyBoardOperation(source: BoardData, operation: BoardOperation
           agentProfileId:
             existing?.agentProfileId ?? agent.labels[AGENT_LABELS.agentProfileId] ?? null,
           agentProfileName: existing?.agentProfileName ?? null,
-          createdAt: agent.createdAt,
-          updatedAt: agent.updatedAt,
+          workspaceName: existing?.workspaceName ?? agent.workspaceName,
+          branchName: existing?.branchName ?? null,
+          createdAt: existing?.createdAt ?? agent.createdAt,
+          updatedAt:
+            existing && existing.updatedAt.localeCompare(agent.updatedAt) > 0
+              ? existing.updatedAt
+              : agent.updatedAt,
         };
         if (existing) Object.assign(existing, reconciled);
         else data.runs.push(reconciled);

@@ -6,16 +6,11 @@ import {
   type Run,
 } from "../shared/model";
 import { adjacentColumn } from "../shared/operations";
+import { isActiveAgent, runStatus, type RunStatusTone } from "../shared/runState";
 import type { BoardStyles } from "./useBoardStyles";
 import type { AgentSummary } from "./usePaseoDirectory";
 
-interface StatusPalette {
-  accent: string;
-  danger: string;
-  muted: string;
-  success: string;
-  warning: string;
-}
+type StatusPalette = Record<RunStatusTone, string>;
 
 interface BoardColumnProps {
   agents: readonly AgentSummary[];
@@ -26,6 +21,7 @@ interface BoardColumnProps {
   confirmDeleteCardId: string | null;
   onDelete: (cardId: string) => void;
   onEdit: (card: Card) => void;
+  onViewDetails: (card: Card) => void;
   onMove: (card: Card, column: Column, index: number) => void;
   onMoveToEnd: (card: Card, column: Column) => void;
   onOpenAgent: ((agentId: string) => void) | undefined;
@@ -34,24 +30,6 @@ interface BoardColumnProps {
   runs: readonly Run[];
   statusPalette: StatusPalette;
   styles: BoardStyles;
-}
-
-function runStatus(agent: AgentSummary | undefined): {
-  label: string;
-  tone: keyof StatusPalette;
-} {
-  if (!agent) return { label: "Agent missing", tone: "warning" };
-  if (agent.archivedAt) return { label: "Archived", tone: "muted" };
-  if (agent.attentionReason === "permission") return { label: "Permission required", tone: "warning" };
-  if (agent.attentionReason === "error" || agent.status === "error") {
-    return { label: "Error", tone: "danger" };
-  }
-  if (agent.attentionReason === "finished") return { label: "Review suggested", tone: "success" };
-  if (agent.status === "running" || agent.status === "initializing") {
-    return { label: "Running", tone: "accent" };
-  }
-  if (agent.status === "closed") return { label: "Closed", tone: "muted" };
-  return { label: "Idle", tone: "muted" };
 }
 
 export function BoardColumn({
@@ -63,6 +41,7 @@ export function BoardColumn({
   confirmDeleteCardId,
   onDelete,
   onEdit,
+  onViewDetails,
   onMove,
   onMoveToEnd,
   onOpenAgent,
@@ -87,14 +66,7 @@ export function BoardColumn({
           ? agents.find((candidate) => candidate.id === latestRun.agentId)
           : undefined;
         const status = latestRun ? runStatus(agent) : null;
-        const activeAgent = Boolean(
-          agent &&
-            !agent.archivedAt &&
-            agent.attentionReason !== "finished" &&
-            agent.attentionReason !== "error" &&
-            agent.status !== "error" &&
-            agent.status !== "closed",
-        );
+        const activeAgent = isActiveAgent(agent);
         const statusColor = status ? statusPalette[status.tone] : columnTone;
         const left = adjacentColumn(card.column, -1);
         const right = adjacentColumn(card.column, 1);
@@ -156,6 +128,14 @@ export function BoardColumn({
               ) : null}
             </View>
             <View style={styles.cardActions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`View details and run history for ${card.key}`}
+                onPress={() => onViewDetails(card)}
+                style={styles.button}
+              >
+                <Text style={styles.buttonText}>Details</Text>
+              </Pressable>
               <Pressable accessibilityRole="button" onPress={() => onEdit(card)} style={styles.button}>
                 <Text style={styles.buttonText}>Edit</Text>
               </Pressable>

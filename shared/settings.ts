@@ -12,14 +12,21 @@ function unsupported(name: string, fromVersion: number): never {
 
 export function migrateBoardData(values: unknown, fromVersion: number): unknown {
   if (fromVersion === BOARD_DATA_VERSION) return values;
-  if (fromVersion === 1 && values && typeof values === "object") {
+  if ((fromVersion === 1 || fromVersion === 2) && values && typeof values === "object") {
     const data = values as { runs?: unknown[] } & Record<string, unknown>;
     return {
       ...data,
       version: BOARD_DATA_VERSION,
       runs: (data.runs ?? []).map((run) =>
         run && typeof run === "object"
-          ? { ...run, agentProfileId: null, agentProfileName: null }
+          ? {
+              ...run,
+              ...(fromVersion === 1
+                ? { agentProfileId: null, agentProfileName: null }
+                : {}),
+              workspaceName: null,
+              branchName: null,
+            }
           : run,
       ),
     };

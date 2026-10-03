@@ -9,7 +9,9 @@
     "client/",
     "shared/model.ts",
     "shared/agentProfiles.ts",
+    "shared/cardAttachments.ts",
     "shared/operations.ts",
+    "shared/runState.ts",
     "shared/settings.ts"
   ],
   "scripts": {

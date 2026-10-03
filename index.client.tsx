@@ -1,5 +1,8 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { AgentCardPanel } from "./client/AgentCardPanel";
 import { BoardSurface } from "./client/BoardSurface";
+import { registerKanbanComposerPills } from "./client/registerCardIntegrations";
+import { kanbanCardsAttachmentSource } from "./shared/cardAttachments";
 
 export default function contribute(client: PluginClientContext) {
   const removeSurface = client.addSurface("board", BoardSurface);
@@ -19,8 +22,32 @@ export default function contribute(client: PluginClientContext) {
       openSurface("board");
     },
   });
+  const removeAgentPanel = client.addWorkspacePanel({
+    id: "kanban-card",
+    title: "Kanban card",
+    icon: "Columns3",
+    context: "agent",
+    locations: ["workspace", "explorer"],
+    Component: AgentCardPanel,
+  });
+  const removeAgentCommand = client.addCommandCenterItem({
+    id: "open-kanban-card",
+    title: "Open linked Kanban card",
+    icon: "Columns3",
+    keywords: ["card", "task", "run"],
+    context: "agent",
+    onSelect({ openPanel }) {
+      openPanel("kanban-card");
+    },
+  });
+  const removeAttachmentSource = client.addAttachmentSource(kanbanCardsAttachmentSource);
+  const removeComposerPills = registerKanbanComposerPills(client);
 
   return () => {
+    removeComposerPills();
+    removeAttachmentSource();
+    removeAgentCommand();
+    removeAgentPanel();
     removeCommand();
     removeSidebar();
     removeSurface();

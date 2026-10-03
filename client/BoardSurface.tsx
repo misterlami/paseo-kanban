@@ -37,6 +37,13 @@ import { usePaseoDirectory, type WorkspaceSummary } from "./usePaseoDirectory";
 
 const boardRpc = settingsRpc(boardDataSettings.id);
 const displayRpc = settingsRpc(displaySettings.id);
+const COLUMN_TONES = {
+  backlog: "#64748b",
+  todo: "#d97706",
+  in_progress: "#16a34a",
+  in_review: "#7c3aed",
+  done: "#0891b2",
+} satisfies Record<BoardColumn, string>;
 type NullableString = string | null;
 
 function defaultWorkspaceId(workspaces: readonly WorkspaceSummary[], projectId: string | null): string | null {
@@ -284,14 +291,6 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       Boolean(agent.workspaceId) &&
       projectWorkspaces.some((workspace) => workspace.id === agent.workspaceId),
   );
-  const columnTones: Record<BoardColumn, string> = {
-    backlog: theme.colors.foregroundMuted,
-    todo: theme.colors.border,
-    in_progress: theme.colors.statusWarning,
-    in_review: theme.colors.statusSuccess,
-    done: theme.colors.accent,
-  };
-
   const selectProject = (projectId: string) => {
     setSelectedProjectId(projectId);
     setProjectPickerOpen(false);
@@ -662,7 +661,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                 allCards={allCards}
                 cards={cards}
                 column={column}
-                columnTone={columnTones[column]}
+                columnTone={COLUMN_TONES[column]}
                 confirmDeleteCardId={confirmDeleteCardId}
                 onDelete={(cardId) => {
                   if (confirmDeleteCardId !== cardId) {

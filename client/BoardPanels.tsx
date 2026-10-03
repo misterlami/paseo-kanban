@@ -185,7 +185,7 @@ export function AgentLauncherPanel({
         );
 
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, styles.launcherPanel]}>
       <Text style={styles.launcherTitle}>Run agent</Text>
       <View accessibilityRole="tablist" style={styles.launcherTabs}>
         {(["start", "attach"] as const).map((action) => {
@@ -208,127 +208,128 @@ export function AgentLauncherPanel({
 
       {launcher.action === "start" ? (
         <>
-          <Text style={styles.sectionLabel}>1. CHOOSE AN AGENT PROFILE</Text>
-          <View accessibilityLabel="Agent profiles" accessibilityRole="radiogroup" style={styles.optionGrid}>
-            {agentProfiles.map((profile) => {
-              const selected = profile.id === launcher.agentProfileId;
-              const color = profileColor(profile.color);
-              return (
-                <Pressable
-                  key={profile.id}
-                  accessibilityLabel={`Agent profile ${profile.name}`}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: selected }}
-                  onPress={() => onChange({ ...launcher, agentProfileId: profile.id })}
-                  style={[
-                    styles.profileOption,
-                    selected && styles.selectedOption,
-                  ]}
-                >
-                  <View style={[styles.profileMarker, { backgroundColor: color }]}>
-                    <Icon color="#ffffff" name={profileIconName(profile.icon)} size={16} />
-                  </View>
-                  <View style={styles.profileContent}>
-                    <Text numberOfLines={1} style={styles.profileName}>{profile.name}</Text>
-                    {profile.notes ? (
-                      <Text numberOfLines={1} style={styles.muted}>{profile.notes}</Text>
-                    ) : null}
-                  </View>
-                  <ChoiceIndicator selected={selected} styles={styles} />
-                </Pressable>
-              );
-            })}
-          </View>
-          {profilesSupported === false ? (
-            <Text style={styles.warning}>This Paseo host does not support agent profiles.</Text>
-          ) : agentProfiles.length === 0 ? (
-            <Text style={styles.warning}>No agent profiles are configured on this host.</Text>
-          ) : null}
-
-          <Text style={styles.sectionLabel}>2. CHOOSE A WORKSPACE</Text>
-          <View accessibilityRole="tablist" style={styles.launcherTabs}>
-            {(["existing", "new"] as const).map((mode) => {
-              const selected = launcher.workspaceMode === mode;
-              return (
-                <Pressable
-                  key={mode}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected }}
-                  disabled={mode === "new" && !canCreateWorktree}
-                  onPress={() => onChange({ ...launcher, workspaceMode: mode, workspaceId: null })}
-                  style={[styles.launcherTab, selected && styles.selectedLauncherTab]}
-                >
-                  <Text style={[styles.launcherTabText, selected && styles.selectedLauncherTabText]}>
-                    {mode === "existing" ? "Existing" : "New worktree"}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {launcher.workspaceMode === "existing" ? (
-            <View accessibilityLabel="Existing workspaces" accessibilityRole="radiogroup" style={styles.optionGrid}>
-              {workspaces.map((workspace) => {
-                const selected = workspace.id === launcher.workspaceId;
+          <View style={styles.launcherSection}>
+            <Text style={styles.sectionLabel}>1. Choose an agent profile</Text>
+            <View accessibilityLabel="Agent profiles" accessibilityRole="radiogroup" style={styles.optionGrid}>
+              {agentProfiles.map((profile) => {
+                const selected = profile.id === launcher.agentProfileId;
+                const color = profileColor(profile.color);
                 return (
                   <Pressable
-                    key={workspace.id}
-                    accessibilityLabel={`Workspace ${workspace.title ?? workspace.name}`}
+                    key={profile.id}
+                    accessibilityLabel={`Agent profile ${profile.name}`}
                     accessibilityRole="radio"
                     accessibilityState={{ checked: selected }}
-                    onPress={() => onChange({ ...launcher, workspaceId: workspace.id })}
-                    style={[styles.workspaceOption, selected && styles.selectedOption]}
+                    onPress={() => onChange({ ...launcher, agentProfileId: profile.id })}
+                    style={[styles.selectionOption, selected && styles.selectedOption]}
                   >
-                    <Text numberOfLines={1} style={styles.workspaceName}>
-                      {workspace.title ?? workspace.name}
-                    </Text>
+                    <View style={styles.profileMarker}>
+                      <Icon color={color} name={profileIconName(profile.icon)} size={18} />
+                    </View>
+                    <View style={styles.profileContent}>
+                      <Text numberOfLines={1} style={styles.profileName}>{profile.name}</Text>
+                      {profile.notes ? (
+                        <Text numberOfLines={1} style={styles.muted}>{profile.notes}</Text>
+                      ) : null}
+                    </View>
                     <ChoiceIndicator selected={selected} styles={styles} />
                   </Pressable>
                 );
               })}
-              {workspaces.length === 0 ? (
-                <Text style={styles.warning}>This project has no available workspace.</Text>
-              ) : null}
             </View>
-          ) : (
-            <View style={styles.formFields}>
-              <TextInput
-                accessibilityLabel="New workspace title"
-                placeholder="Workspace title (optional)"
-                placeholderTextColor={placeholderColor}
-                value={launcher.workspaceTitle}
-                onChangeText={(workspaceTitle) => onChange({ ...launcher, workspaceTitle })}
-                style={styles.input}
-              />
-              <TextInput
-                accessibilityLabel="Base branch or ref"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Base branch or ref (optional)"
-                placeholderTextColor={placeholderColor}
-                value={launcher.baseRef}
-                onChangeText={(baseRef) => onChange({ ...launcher, baseRef })}
-                style={styles.input}
-              />
-              <TextInput
-                accessibilityLabel="New branch name"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="New branch name (optional)"
-                placeholderTextColor={placeholderColor}
-                value={launcher.branchName}
-                onChangeText={(branchName) => onChange({ ...launcher, branchName })}
-                style={styles.input}
-              />
-              {!canCreateWorktree ? (
-                <Text style={styles.warning}>New worktrees require a Git project.</Text>
-              ) : null}
+            {profilesSupported === false ? (
+              <Text style={styles.warning}>This Paseo host does not support agent profiles.</Text>
+            ) : agentProfiles.length === 0 ? (
+              <Text style={styles.warning}>No agent profiles are configured on this host.</Text>
+            ) : null}
+          </View>
+
+          <View style={styles.launcherSection}>
+            <Text style={styles.sectionLabel}>2. Choose a workspace</Text>
+            <View accessibilityRole="tablist" style={styles.launcherTabs}>
+              {(["existing", "new"] as const).map((mode) => {
+                const selected = launcher.workspaceMode === mode;
+                return (
+                  <Pressable
+                    key={mode}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}
+                    disabled={mode === "new" && !canCreateWorktree}
+                    onPress={() => onChange({ ...launcher, workspaceMode: mode, workspaceId: null })}
+                    style={[styles.launcherTab, selected && styles.selectedLauncherTab]}
+                  >
+                    <Text style={[styles.launcherTabText, selected && styles.selectedLauncherTabText]}>
+                      {mode === "existing" ? "Existing" : "New worktree"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-          )}
+
+            {launcher.workspaceMode === "existing" ? (
+              <View accessibilityLabel="Existing workspaces" accessibilityRole="radiogroup" style={styles.optionGrid}>
+                {workspaces.map((workspace) => {
+                  const selected = workspace.id === launcher.workspaceId;
+                  return (
+                    <Pressable
+                      key={workspace.id}
+                      accessibilityLabel={`Workspace ${workspace.name}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      onPress={() => onChange({ ...launcher, workspaceId: workspace.id })}
+                      style={[styles.selectionOption, selected && styles.selectedOption]}
+                    >
+                      <Text numberOfLines={1} style={styles.workspaceName}>
+                        {workspace.name}
+                      </Text>
+                      <ChoiceIndicator selected={selected} styles={styles} />
+                    </Pressable>
+                  );
+                })}
+                {workspaces.length === 0 ? (
+                  <Text style={styles.warning}>This project has no available workspace.</Text>
+                ) : null}
+              </View>
+            ) : (
+              <View style={styles.formFields}>
+                <TextInput
+                  accessibilityLabel="New workspace title"
+                  placeholder="Workspace title (optional)"
+                  placeholderTextColor={placeholderColor}
+                  value={launcher.workspaceTitle}
+                  onChangeText={(workspaceTitle) => onChange({ ...launcher, workspaceTitle })}
+                  style={styles.input}
+                />
+                <TextInput
+                  accessibilityLabel="Base branch or ref"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="Base branch or ref (optional)"
+                  placeholderTextColor={placeholderColor}
+                  value={launcher.baseRef}
+                  onChangeText={(baseRef) => onChange({ ...launcher, baseRef })}
+                  style={styles.input}
+                />
+                <TextInput
+                  accessibilityLabel="New branch name"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="New branch name (optional)"
+                  placeholderTextColor={placeholderColor}
+                  value={launcher.branchName}
+                  onChangeText={(branchName) => onChange({ ...launcher, branchName })}
+                  style={styles.input}
+                />
+                {!canCreateWorktree ? (
+                  <Text style={styles.warning}>New worktrees require a Git project.</Text>
+                ) : null}
+              </View>
+            )}
+          </View>
         </>
       ) : (
-        <>
-          <Text style={styles.sectionLabel}>CHOOSE AN EXISTING AGENT</Text>
+        <View style={styles.launcherSection}>
+          <Text style={styles.sectionLabel}>Choose an existing agent</Text>
           <View accessibilityLabel="Unlinked project agents" accessibilityRole="radiogroup" style={styles.optionGrid}>
             {attachableAgents.map((agent) => {
               const selected = agent.id === launcher.attachAgentId;
@@ -340,12 +341,12 @@ export function AgentLauncherPanel({
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   onPress={() => onChange({ ...launcher, attachAgentId: agent.id })}
-                  style={[styles.profileOption, styles.attachOption, selected && styles.selectedOption]}
+                  style={[styles.selectionOption, selected && styles.selectedOption]}
                 >
                   <View style={styles.profileContent}>
                     <Text numberOfLines={1} style={styles.profileName}>{agent.title ?? agent.id}</Text>
                     <Text numberOfLines={1} style={styles.muted}>
-                      {workspace?.title ?? workspace?.name ?? "Unknown workspace"} · {agent.status}
+                      {workspace?.name ?? "Unknown workspace"} · {agent.status}
                     </Text>
                   </View>
                   <ChoiceIndicator selected={selected} styles={styles} />
@@ -356,10 +357,10 @@ export function AgentLauncherPanel({
               <Text style={styles.warning}>No unlinked agents are available in this project.</Text>
             ) : null}
           </View>
-        </>
+        </View>
       )}
 
-      <View style={styles.cardActions}>
+      <View style={[styles.cardActions, styles.launcherFooter]}>
         <Pressable
           accessibilityRole="button"
           disabled={!canStart || working}

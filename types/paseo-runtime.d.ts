@@ -44,6 +44,7 @@ declare module "@getpaseo/client" {
     workspaceId?: string;
     status: "initializing" | "idle" | "running" | "error" | "closed";
     title: string | null;
+    model: string | null;
     labels: Record<string, string>;
     createdAt: string;
     updatedAt: string;
@@ -55,6 +56,40 @@ declare module "@getpaseo/client" {
   export interface PaseoAgentHandle {
     id: string;
     current(): PaseoAgent | null;
+  }
+
+  export interface AgentProfile {
+    id: string;
+    name: string;
+    icon?: string;
+    color?: string;
+    provider: string;
+    model?: string;
+    modeId?: string;
+    thinkingOptionId?: string;
+    featureValues?: Record<string, unknown>;
+    notes?: string;
+  }
+
+  export interface AgentCreateOptions {
+    config: {
+      provider: string;
+      model?: string;
+      modeId?: string;
+      thinkingOptionId?: string;
+      featureValues?: Record<string, unknown>;
+    };
+    title?: string;
+    labels?: Record<string, string>;
+    prompt?: string;
+  }
+
+  export interface PaseoWorkspaceHandle {
+    id: string;
+    current(): PaseoWorkspace | null;
+    agents: {
+      create(options: AgentCreateOptions): Promise<PaseoAgentHandle>;
+    };
   }
 
   export interface ProviderModel {
@@ -74,10 +109,26 @@ declare module "@getpaseo/client" {
   }
 
   export interface PaseoApi {
+    config: {
+      get(): Promise<{ config: { agentProfiles?: AgentProfile[] } }>;
+    };
     projects: {
       list(): Promise<{ projects: PaseoProject[] }>;
     };
     workspaces: {
+      create(options: {
+        idempotencyKey?: string;
+        title?: string;
+        source: {
+          kind: "worktree";
+          projectId?: string;
+          cwd?: string;
+          action?: "branch-off" | "checkout";
+          refName?: string;
+          branchName?: string;
+          worktreeSlug?: string;
+        };
+      }): Promise<PaseoWorkspaceHandle>;
       list(options?: {
         filter?: { projectId?: string };
         page?: { limit: number; cursor?: string };
@@ -87,12 +138,7 @@ declare module "@getpaseo/client" {
       }>;
       ref(workspaceId: string): {
         agents: {
-          create(options: {
-            config: { provider: string };
-            title?: string;
-            labels?: Record<string, string>;
-            prompt?: string;
-          }): Promise<PaseoAgentHandle>;
+          create(options: AgentCreateOptions): Promise<PaseoAgentHandle>;
         };
       };
     };

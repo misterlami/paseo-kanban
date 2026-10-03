@@ -8,6 +8,7 @@
     "index.server.ts",
     "client/",
     "shared/model.ts",
+    "shared/agentProfiles.ts",
     "shared/operations.ts",
     "shared/settings.ts"
   ],

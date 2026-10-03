@@ -29,7 +29,8 @@ interface BoardColumnProps {
   onMove: (card: Card, column: Column, index: number) => void;
   onMoveToEnd: (card: Card, column: Column) => void;
   onOpenAgent: ((agentId: string) => void) | undefined;
-  onRun: (cardId: string) => void;
+  onRequestChanges: (card: Card) => void;
+  onRun: (card: Card) => void;
   runs: readonly Run[];
   statusPalette: StatusPalette;
   styles: BoardStyles;
@@ -65,6 +66,7 @@ export function BoardColumn({
   onMove,
   onMoveToEnd,
   onOpenAgent,
+  onRequestChanges,
   onRun,
   runs,
   statusPalette,
@@ -85,6 +87,14 @@ export function BoardColumn({
           ? agents.find((candidate) => candidate.id === latestRun.agentId)
           : undefined;
         const status = latestRun ? runStatus(agent) : null;
+        const activeAgent = Boolean(
+          agent &&
+            !agent.archivedAt &&
+            agent.attentionReason !== "finished" &&
+            agent.attentionReason !== "error" &&
+            agent.status !== "error" &&
+            agent.status !== "closed",
+        );
         const statusColor = status ? statusPalette[status.tone] : columnTone;
         const left = adjacentColumn(card.column, -1);
         const right = adjacentColumn(card.column, 1);
@@ -160,16 +170,54 @@ export function BoardColumn({
                     {card.column === "done" ? "Reopen to Ready" : "Move to Ready"}
                   </Text>
                 </Pressable>
-              ) : (
+              ) : card.column === "todo" ? (
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => onRun(card.id)}
+                  onPress={() => onRun(card)}
                   style={[styles.button, styles.primaryButton]}
                 >
-                  <Text style={[styles.buttonText, styles.primaryButtonText]}>Run agent</Text>
+                  <Text style={[styles.buttonText, styles.primaryButtonText]}>Start agent</Text>
                 </Pressable>
+              ) : card.column === "in_progress" ? (
+                <>
+                  {activeAgent && latestRun && onOpenAgent ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => onOpenAgent(latestRun.agentId)}
+                      style={[styles.button, styles.primaryButton]}
+                    >
+                      <Text style={[styles.buttonText, styles.primaryButtonText]}>Open agent</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => onRun(card)}
+                    style={[styles.button, !latestRun && styles.primaryButton]}
+                  >
+                    <Text style={[styles.buttonText, !latestRun && styles.primaryButtonText]}>
+                      {latestRun ? "New attempt" : "Start agent"}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => onRequestChanges(card)}
+                    style={styles.button}
+                  >
+                    <Text style={styles.buttonText}>Request changes</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => onMoveToEnd(card, "done")}
+                    style={[styles.button, styles.primaryButton]}
+                  >
+                    <Text style={[styles.buttonText, styles.primaryButtonText]}>Mark Done</Text>
+                  </Pressable>
+                </>
               )}
-              {latestRun && onOpenAgent ? (
+              {latestRun && onOpenAgent && !(card.column === "in_progress" && activeAgent) ? (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => onOpenAgent(latestRun.agentId)}

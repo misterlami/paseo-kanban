@@ -8,6 +8,7 @@ import {
   cardsInColumn,
 } from "./operations";
 import { migrateBoardData } from "./settings";
+import { materializeAgentProfile } from "./agentProfiles";
 
 const NOW = "2026-10-02T12:00:00.000Z";
 
@@ -100,6 +101,8 @@ test("deleting a card removes its runs", () => {
     agentId: "agent_1",
     workspaceId: "workspace_1",
     provider: "codex/gpt-6.1-sol",
+    agentProfileId: null,
+    agentProfileName: null,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -122,6 +125,7 @@ test("reconciles a labeled agent idempotently", () => {
       "kanban.boardId": "board_1",
       "kanban.cardId": "card_1",
       "kanban.runId": "run_1",
+      "kanban.agentProfileId": "agent_profile_1",
     },
   };
   data = applyBoardOperation(data, { type: "reconcile-runs", agents: [agent] });
@@ -129,6 +133,7 @@ test("reconciles a labeled agent idempotently", () => {
 
   assert.equal(data.runs.length, 1);
   assert.equal(data.runs[0]?.agentId, "agent_1");
+  assert.equal(data.runs[0]?.agentProfileId, "agent_profile_1");
 });
 
 test("does not rewrite a run when agent labels conflict", () => {
@@ -139,6 +144,8 @@ test("does not rewrite a run when agent labels conflict", () => {
     agentId: "agent_1",
     workspaceId: "workspace_1",
     provider: "codex/gpt-6.1-sol",
+    agentProfileId: null,
+    agentProfileName: null,
     createdAt: NOW,
     updatedAt: NOW,
   };
@@ -182,9 +189,32 @@ test("rejects card content outside persistence limits", () => {
   );
 });
 
+test("migrates version 1 runs without profile metadata", () => {
+  const old = {
+    ...addCard(boardData(), "card_1"),
+    version: 1,
+    runs: [
+      {
+        id: "run_1",
+        cardId: "card_1",
+        agentId: "agent_1",
+        workspaceId: "workspace_1",
+        provider: "codex",
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    ],
+  };
+  const migrated = BoardDataSchema.parse(migrateBoardData(old, 1));
+
+  assert.equal(migrated.version, 2);
+  assert.equal(migrated.runs[0]?.agentProfileId, null);
+  assert.equal(migrated.runs[0]?.agentProfileName, null);
+});
+
 test("rejects unsupported settings versions instead of resetting data", () => {
-  assert.throws(() => migrateBoardData({ version: 2 }, 2), /Cannot migrate/);
-  assert.equal(BoardDataSchema.safeParse({ version: 2, boards: [], cards: [], runs: [] }).success, false);
+  assert.throws(() => migrateBoardData({ version: 3 }, 3), /Cannot migrate/);
+  assert.equal(BoardDataSchema.safeParse({ version: 3, boards: [], cards: [], runs: [] }).success, false);
 });
 
 test("rejects imports with broken record relationships", () => {
@@ -192,4 +222,25 @@ test("rejects imports with broken record relationships", () => {
   const invalid = { ...data, boards: [] };
 
   assert.equal(BoardDataSchema.safeParse(invalid).success, false);
+});
+
+test("materializes every agent profile execution option", () => {
+  assert.deepEqual(
+    materializeAgentProfile({
+      id: "agent_profile_1",
+      name: "Review",
+      provider: "codex",
+      model: "gpt-6.1-sol",
+      modeId: "full-access",
+      thinkingOptionId: "xhigh",
+      featureValues: { review: true },
+    }),
+    {
+      provider: "codex",
+      model: "gpt-6.1-sol",
+      modeId: "full-access",
+      thinkingOptionId: "xhigh",
+      featureValues: { review: true },
+    },
+  );
 });

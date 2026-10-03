@@ -218,6 +218,9 @@ export function applyBoardOperation(source: BoardData, operation: BoardOperation
           agentId: agent.agentId,
           workspaceId: agent.workspaceId,
           provider: existing?.provider ?? agent.provider,
+          agentProfileId:
+            existing?.agentProfileId ?? agent.labels[AGENT_LABELS.agentProfileId] ?? null,
+          agentProfileName: existing?.agentProfileName ?? null,
           createdAt: agent.createdAt,
           updatedAt: agent.updatedAt,
         };

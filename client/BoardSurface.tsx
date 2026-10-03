@@ -4,6 +4,7 @@ import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { materializeAgentProfile, type AgentProfile } from "../shared/agentProfiles";
 import {
   AGENT_LABELS,
   BOARD_COLUMNS,
@@ -24,6 +25,7 @@ import { boardDataSettings, displaySettings } from "../shared/settings";
 import { BoardColumn as BoardColumnView } from "./BoardColumn";
 import {
   AgentLauncherPanel,
+  type AgentLauncherState,
   CardEditorPanel,
   type EditorState,
   ImportPanel,
@@ -31,11 +33,37 @@ import {
 import { errorMessage } from "./errors";
 import { ProjectPicker } from "./ProjectPicker";
 import { useBoardStyles } from "./useBoardStyles";
-import { usePaseoDirectory } from "./usePaseoDirectory";
+import { usePaseoDirectory, type WorkspaceSummary } from "./usePaseoDirectory";
 
 const boardRpc = settingsRpc(boardDataSettings.id);
 const displayRpc = settingsRpc(displaySettings.id);
 type NullableString = string | null;
+
+function defaultWorkspaceId(workspaces: readonly WorkspaceSummary[], projectId: string | null): string | null {
+  const available = workspaces.filter((workspace) => workspace.projectId === projectId);
+  const main = available.find((workspace) =>
+    [workspace.title, workspace.name].some((name) => /^main(?: branch)?$/i.test(name?.trim() ?? "")),
+  );
+  return (main ?? available[0])?.id ?? null;
+}
+
+function withLauncherDefaults(
+  launcher: AgentLauncherState,
+  agentProfiles: readonly AgentProfile[],
+  workspaces: readonly WorkspaceSummary[],
+  projectId: string | null,
+): AgentLauncherState {
+  const agentProfileId = agentProfiles.some((profile) => profile.id === launcher.agentProfileId)
+    ? launcher.agentProfileId
+    : agentProfiles[0]?.id ?? null;
+  const workspaceId = launcher.workspaceMode === "existing" &&
+      !workspaces.some((workspace) => workspace.projectId === projectId && workspace.id === launcher.workspaceId)
+    ? defaultWorkspaceId(workspaces, projectId)
+    : launcher.workspaceId;
+  return agentProfileId === launcher.agentProfileId && workspaceId === launcher.workspaceId
+    ? launcher
+    : { ...launcher, agentProfileId, workspaceId };
+}
 
 export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceProps) {
   const paseo = usePaseo();
@@ -50,8 +78,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const [filter, setFilter] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [runCardId, setRunCardId] = useState<NullableString>(null);
-  const [workspaceId, setWorkspaceId] = useState<NullableString>(null);
-  const [providerModel, setProviderModel] = useState<NullableString>(null);
+  const [launcher, setLauncher] = useState<AgentLauncherState | null>(null);
   const [startingAgent, setStartingAgent] = useState(false);
   const [confirmDeleteCardId, setConfirmDeleteCardId] = useState<NullableString>(null);
   const [importText, setImportText] = useState<NullableString>(null);
@@ -66,6 +93,16 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       ? boardForProject(boardSettings.values, selectedProjectId)
       : undefined;
   const directory = usePaseoDirectory(selectedProjectId, currentBoard?.id ?? null);
+
+  useEffect(() => {
+    if (!launcher || launcher.action !== "start") return;
+    if (withLauncherDefaults(launcher, directory.agentProfiles, directory.workspaces, selectedProjectId) === launcher) return;
+    setLauncher((current) =>
+      current && current.action === "start"
+        ? withLauncherDefaults(current, directory.agentProfiles, directory.workspaces, selectedProjectId)
+        : current,
+    );
+  }, [directory.agentProfiles, directory.workspaces, launcher, selectedProjectId]);
 
   const persistOperations = useCallback(
     async (operations: readonly BoardOperation[]) => {
@@ -148,18 +185,6 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         ensuringProject.current = null;
       });
   }, [boardSettings.status, currentBoard, directory.projects, persistOperations, selectedProjectId, toast]);
-
-  useEffect(() => {
-    if (!workspaceId || !directory.workspaces.some((workspace) => workspace.id === workspaceId)) {
-      setWorkspaceId(directory.workspaces[0]?.id ?? null);
-    }
-  }, [directory.workspaces, workspaceId]);
-
-  useEffect(() => {
-    if (!providerModel || !directory.models.some((model) => model.id === providerModel)) {
-      setProviderModel(directory.models[0]?.id ?? null);
-    }
-  }, [directory.models, providerModel]);
 
   useEffect(() => {
     if (boardSettings.status !== "ready" || directory.agents.length === 0) return;
@@ -245,6 +270,20 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       (!normalizedFilter ||
         `${card.key} ${card.title} ${card.description}`.toLowerCase().includes(normalizedFilter)),
   );
+  const selectedProject = directory.projects.find(
+    (candidate) => candidate.projectId === selectedProjectId,
+  );
+  const projectWorkspaces = directory.workspaces.filter(
+    (workspace) => workspace.projectId === selectedProjectId,
+  );
+  const linkedAgentIds = new Set(boardSettings.values.runs.map((run) => run.agentId));
+  const attachableAgents = directory.agents.filter(
+    (agent) =>
+      !agent.archivedAt &&
+      !linkedAgentIds.has(agent.id) &&
+      Boolean(agent.workspaceId) &&
+      projectWorkspaces.some((workspace) => workspace.id === agent.workspaceId),
+  );
   const columnTones: Record<BoardColumn, string> = {
     backlog: theme.colors.foregroundMuted,
     todo: theme.colors.border,
@@ -259,6 +298,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     setProjectFilter("");
     setEditor(null);
     setRunCardId(null);
+    setLauncher(null);
     void persistDisplay((values) => ({ ...values, selectedProjectId: projectId })).catch((cause) =>
       toast.error(errorMessage(cause)),
     );
@@ -299,12 +339,32 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     ]).catch(() => undefined);
   };
 
-  const startAgent = async () => {
-    if (!board || !runCardId || !workspaceId || !providerModel) return;
+  const openLauncher = (card: Card) => {
+    setRunCardId(card.id);
+    setLauncher(withLauncherDefaults({
+      action: "start",
+      agentProfileId: null,
+      workspaceMode: "existing",
+      workspaceId: null,
+      workspaceTitle: `${card.key}: ${card.title}`,
+      baseRef: "",
+      branchName: "",
+      attachAgentId: null,
+    }, directory.agentProfiles, projectWorkspaces, selectedProjectId));
+    void directory.refreshAgentProfiles();
+  };
+
+  const closeLauncher = () => {
+    setRunCardId(null);
+    setLauncher(null);
+  };
+
+  const runAgent = async () => {
+    if (!board || !runCardId || !launcher) return;
     const card = boardSettings.values.cards.find((candidate) => candidate.id === runCardId);
     if (!card || card.boardId !== board.id) return;
     if (card.column === "backlog" || card.column === "done") {
-      setRunCardId(null);
+      closeLauncher();
       toast.error("Move the card to Ready before starting an agent.");
       return;
     }
@@ -312,13 +372,94 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     const runId = createId("run");
     const now = new Date().toISOString();
     try {
-      const agent = await paseo.workspaces.ref(workspaceId).agents.create({
-        config: { provider: providerModel },
+      if (launcher.action === "attach") {
+        const agent = directory.agents.find((candidate) => candidate.id === launcher.attachAgentId);
+        if (!agent || agent.archivedAt) throw new Error("The selected agent is no longer available.");
+        if (!agent.workspaceId) throw new Error("The selected agent has no workspace.");
+        if (!projectWorkspaces.some((workspace) => workspace.id === agent.workspaceId)) {
+          throw new Error("The selected agent belongs to another project.");
+        }
+        if (boardSettings.values.runs.some((run) => run.agentId === agent.id)) {
+          throw new Error("The selected agent is already attached to a card.");
+        }
+        const operations: BoardOperation[] = [
+          {
+            type: "add-run",
+            run: {
+              id: runId,
+              cardId: card.id,
+              agentId: agent.id,
+              workspaceId: agent.workspaceId,
+              provider: agent.provider,
+              agentProfileId: null,
+              agentProfileName: null,
+              createdAt: agent.createdAt,
+              updatedAt: agent.updatedAt,
+            },
+          },
+        ];
+        if (card.column === "todo") {
+          operations.push({
+            type: "move-card",
+            cardId: card.id,
+            column: "in_progress",
+            index: cardsInColumn(boardSettings.values, board.id, "in_progress").length,
+            now,
+          });
+        }
+        await persistOperations(operations);
+        toast.show("Agent attached", { variant: "success" });
+        closeLauncher();
+        return;
+      }
+
+      const profiles = await directory.refreshAgentProfiles();
+      const profile = profiles.find((candidate) => candidate.id === launcher.agentProfileId);
+      if (!profile) throw new Error("Select an available agent profile.");
+
+      let resolvedWorkspaceId = launcher.workspaceId;
+      if (launcher.workspaceMode === "new") {
+        const project = directory.projects.find((candidate) => candidate.projectId === selectedProjectId);
+        if (!project || project.projectKind !== "git") {
+          throw new Error("New worktrees require a Git project.");
+        }
+        const baseRef = launcher.baseRef.trim();
+        const branchName = launcher.branchName.trim();
+        const workspace = await paseo.workspaces.create({
+          title: launcher.workspaceTitle.trim() || `${card.key}: ${card.title}`,
+          source: {
+            kind: "worktree",
+            projectId: project.projectId,
+            cwd: project.projectRootPath,
+            action: "branch-off",
+            ...(baseRef ? { refName: baseRef } : {}),
+            ...(branchName ? { branchName } : {}),
+          },
+        });
+        resolvedWorkspaceId = workspace.id;
+        setLauncher((current) =>
+          current
+            ? { ...current, workspaceMode: "existing", workspaceId: workspace.id }
+            : current,
+        );
+        directory.refreshWorkspaces();
+      }
+      if (!resolvedWorkspaceId) throw new Error("Select a workspace.");
+      if (
+        launcher.workspaceMode === "existing" &&
+        !projectWorkspaces.some((workspace) => workspace.id === resolvedWorkspaceId)
+      ) {
+        throw new Error("The selected workspace is no longer available in this project.");
+      }
+
+      const agent = await paseo.workspaces.ref(resolvedWorkspaceId).agents.create({
+        config: materializeAgentProfile(profile),
         title: `${card.key}: ${card.title}`,
         labels: {
           [AGENT_LABELS.boardId]: board.id,
           [AGENT_LABELS.cardId]: card.id,
           [AGENT_LABELS.runId]: runId,
+          [AGENT_LABELS.agentProfileId]: profile.id,
         },
         prompt: [
           `Work on ${card.key}: ${card.title}.`,
@@ -335,8 +476,10 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
             id: runId,
             cardId: card.id,
             agentId: agent.id,
-            workspaceId,
-            provider: providerModel,
+            workspaceId: resolvedWorkspaceId,
+            provider: profile.provider,
+            agentProfileId: profile.id,
+            agentProfileName: profile.name,
             createdAt: agent.current()?.createdAt ?? now,
             updatedAt: agent.current()?.updatedAt ?? now,
           },
@@ -353,7 +496,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       }
       await persistOperations(operations);
       toast.show("Agent started", { variant: "success" });
-      setRunCardId(null);
+      closeLauncher();
     } catch (cause) {
       toast.error(errorMessage(cause));
     } finally {
@@ -465,18 +608,20 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         />
       ) : null}
 
-      {runCardId ? (
+      {runCardId && launcher ? (
         <AgentLauncherPanel
-          models={directory.models}
-          onCancel={() => setRunCardId(null)}
-          onModelChange={setProviderModel}
-          onStart={() => void startAgent()}
-          onWorkspaceChange={setWorkspaceId}
-          providerModel={providerModel}
-          starting={startingAgent}
+          agentProfiles={directory.agentProfiles}
+          attachableAgents={attachableAgents}
+          canCreateWorktree={selectedProject?.projectKind === "git"}
+          launcher={launcher}
+          onCancel={closeLauncher}
+          onChange={setLauncher}
+          onStart={() => void runAgent()}
+          placeholderColor={theme.colors.foregroundMuted}
+          profilesSupported={directory.profilesSupported}
+          working={startingAgent}
           styles={styles}
-          workspaceId={workspaceId}
-          workspaces={directory.workspaces}
+          workspaces={projectWorkspaces}
         />
       ) : null}
 
@@ -550,7 +695,20 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                     ? (agentId) => navigation.openAgent({ agentId, serverId: host.id })
                     : undefined
                 }
-                onRun={setRunCardId}
+                onRequestChanges={(card) => {
+                  void action([
+                    {
+                      type: "move-card",
+                      cardId: card.id,
+                      column: "in_progress",
+                      index: cardsInColumn(boardSettings.values, board.id, "in_progress").length,
+                      now: new Date().toISOString(),
+                    },
+                  ])
+                    .then(() => openLauncher(card))
+                    .catch(() => undefined);
+                }}
+                onRun={openLauncher}
                 runs={boardSettings.values.runs}
                 statusPalette={{
                   accent: theme.colors.accent,

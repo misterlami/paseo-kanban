@@ -1,16 +1,14 @@
 import { usePaseo } from "@getpaseo/plugin/client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AgentProfilesSchema, type AgentProfile } from "../shared/agentProfiles";
 import { AGENT_LABELS } from "../shared/model";
 import { errorMessage } from "./errors";
-
-export interface ModelChoice {
-  id: string;
-  label: string;
-}
 
 export interface ProjectSummary {
   projectId: string;
   projectDisplayName: string;
+  projectRootPath: string;
+  projectKind: "git" | "non_git" | "directory";
 }
 
 export interface WorkspaceSummary {
@@ -23,6 +21,8 @@ export interface WorkspaceSummary {
 export interface AgentSummary {
   id: string;
   provider: string;
+  model: string | null;
+  title: string | null;
   workspaceId?: string;
   status: "initializing" | "idle" | "running" | "error" | "closed";
   labels: Record<string, string>;
@@ -32,8 +32,12 @@ export interface AgentSummary {
   attentionReason?: "finished" | "error" | "permission" | null;
 }
 
-function isAgentForBoard(agent: AgentSummary, boardId: string): boolean {
-  return agent.labels[AGENT_LABELS.boardId] === boardId;
+function isAgentForBoard(agent: AgentSummary, boardId: string | null): boolean {
+  return Boolean(boardId && agent.labels[AGENT_LABELS.boardId] === boardId);
+}
+
+function isAgentForProject(agent: AgentSummary, workspaceIds: ReadonlySet<string>): boolean {
+  return Boolean(agent.workspaceId && workspaceIds.has(agent.workspaceId));
 }
 
 function upsertAgent(current: AgentSummary[], next: AgentSummary): AgentSummary[] {
@@ -49,45 +53,48 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
   const paseo = usePaseo();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [models, setModels] = useState<ModelChoice[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
+  const [profilesSupported, setProfilesSupported] = useState<boolean | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [error, setError] = useState(null as string | null);
+  const [error, setError] = useState<string | null>(null);
+  const [workspaceRefresh, setWorkspaceRefresh] = useState(0);
+
+  const refreshAgentProfiles = useCallback(async () => {
+    try {
+      const result = await paseo.config.get();
+      const profiles = AgentProfilesSchema.parse(result.config.agentProfiles ?? []);
+      setProfilesSupported(true);
+      setAgentProfiles(profiles);
+      return profiles;
+    } catch (cause) {
+      setProfilesSupported(false);
+      setError(errorMessage(cause));
+      setAgentProfiles([]);
+      return [];
+    }
+  }, [paseo]);
+
+  const refreshWorkspaces = useCallback(() => {
+    setWorkspaceRefresh((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
 
-    void Promise.all([paseo.projects.list(), paseo.providers.waitForReady()])
-      .then(([projectResult, providerResult]) => {
-        if (!active) return;
-
-        setProjects(projectResult.projects);
-        setModels(
-          providerResult.entries
-            .filter((entry) => entry.enabled !== false && entry.status === "ready")
-            .flatMap((entry) =>
-              (entry.models ?? [])
-                .filter((model) => model.isSelectable !== false)
-                .map((model) => ({
-                  id: `${entry.provider}/${model.id}`,
-                  label: `${entry.label ?? entry.provider} · ${model.label}`,
-                  default: model.isDefault === true,
-                })),
-            )
-            .sort(
-              (left, right) =>
-                Number(right.default) - Number(left.default) || left.label.localeCompare(right.label),
-            )
-            .map(({ id, label }) => ({ id, label })),
-        );
+    void paseo.projects
+      .list()
+      .then((result) => {
+        if (active) setProjects(result.projects);
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause));
       });
+    void refreshAgentProfiles();
 
     return () => {
       active = false;
     };
-  }, [paseo]);
+  }, [paseo, refreshAgentProfiles]);
 
   useEffect(() => {
     let active = true;
@@ -99,66 +106,95 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
       };
     }
 
-    void paseo.workspaces
-      .list({ filter: { projectId }, page: { limit: 200 } })
-      .then((result) => {
-        if (active) setWorkspaces(result.entries);
-      })
-      .catch((cause) => {
-        if (active) setError(errorMessage(cause));
-      });
+    void (async () => {
+      const entries: WorkspaceSummary[] = [];
+      let cursor: string | undefined;
+      do {
+        const result = await paseo.workspaces.list({
+          filter: { projectId },
+          page: { limit: 200, ...(cursor ? { cursor } : {}) },
+        });
+        entries.push(...result.entries);
+        cursor = result.pageInfo.hasMore ? result.pageInfo.nextCursor ?? undefined : undefined;
+      } while (cursor);
+      if (active) setWorkspaces(entries);
+    })().catch((cause) => {
+      if (active) setError(errorMessage(cause));
+    });
 
     return () => {
       active = false;
     };
-  }, [paseo, projectId]);
+  }, [paseo, projectId, workspaceRefresh]);
+
+  const workspaceIds = useMemo(() => new Set(workspaces.map((workspace) => workspace.id)), [workspaces]);
+  const workspaceKey = useMemo(() => [...workspaceIds].sort().join("\u0000"), [workspaceIds]);
 
   useEffect(() => {
     let active = true;
     let release: (() => void) | undefined;
 
-    if (!boardId) {
+    if (!projectId) {
       setAgents([]);
       return () => {
         active = false;
       };
     }
 
+    const belongsHere = (agent: AgentSummary) =>
+      isAgentForBoard(agent, boardId) || isAgentForProject(agent, workspaceIds);
     const unsubscribe = paseo.agents.subscribe((update) => {
       if (!active) return;
 
       if (update.kind === "remove") {
         setAgents((current) => current.filter((agent) => agent.id !== update.agentId));
-      } else if (isAgentForBoard(update.agent, boardId)) {
+      } else if (belongsHere(update.agent)) {
         setAgents((current) => upsertAgent(current, update.agent));
+      } else {
+        setAgents((current) => current.filter((agent) => agent.id !== update.agent.id));
       }
     });
 
-    void paseo.agents
-      .list({
-        filter: { labels: { [AGENT_LABELS.boardId]: boardId }, includeArchived: true },
-        page: { limit: 200 },
-        subscribe: {},
-      })
-      .then((result) => {
-        if (!active) {
-          void result.subscription?.release();
-          return;
-        }
+    void (async () => {
+      const entries: AgentSummary[] = [];
+      let cursor: string | undefined;
+      let firstSubscription: { release(): Promise<void> } | undefined;
+      do {
+        const result = await paseo.agents.list({
+          filter: { includeArchived: true },
+          page: { limit: 200, ...(cursor ? { cursor } : {}) },
+          ...(!cursor ? { subscribe: {} } : {}),
+        });
+        entries.push(...result.entries.map((entry) => entry.agent).filter(belongsHere));
+        firstSubscription ??= result.subscription;
+        cursor = result.pageInfo.hasMore ? result.pageInfo.nextCursor ?? undefined : undefined;
+      } while (cursor);
 
-        setAgents(result.entries.map((entry) => entry.agent));
-        release = result.subscription ? () => void result.subscription!.release() : undefined;
-      })
-      .catch((cause) => {
-        if (active) setError(errorMessage(cause));
-      });
+      if (!active) {
+        await firstSubscription?.release();
+        return;
+      }
+      setAgents(entries);
+      release = firstSubscription ? () => void firstSubscription.release() : undefined;
+    })().catch((cause) => {
+      if (active) setError(errorMessage(cause));
+    });
 
     return () => {
       active = false;
       unsubscribe();
       void release?.();
     };
-  }, [paseo, boardId]);
+  }, [paseo, projectId, boardId, workspaceKey]);
 
-  return { projects, workspaces, models, agents, error };
+  return {
+    projects,
+    workspaces,
+    agentProfiles,
+    profilesSupported,
+    agents,
+    error,
+    refreshAgentProfiles,
+    refreshWorkspaces,
+  };
 }

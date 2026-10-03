@@ -34,8 +34,8 @@ A card owns workflow state. A run owns execution state. Completing an agent turn
 | Deployment | One Paseo host |
 | Organization | One board per Paseo project |
 | Columns | Backlog, Ready, In Progress, In Review, Done |
-| Execution | User starts an agent from a card |
-| Workspace | User selects an existing workspace |
+| Execution | User starts a profiled agent or attaches an existing unlinked project agent |
+| Workspace | User selects an existing workspace or creates a Git worktree with optional base ref and branch name |
 | Agent updates | Live status badges with reconnect reconciliation |
 | Card movement | Explicit controls with accessibility labels |
 | Agent launch | Ready, In Progress, and In Review cards; Backlog and Done move to Ready first |
@@ -58,8 +58,8 @@ The initial compatibility target is Paseo `>=0.10.2 <0.11.0`. Paseo 0.10.2 expos
 ## Planned workflow
 
 1. Create or move a card into Ready when it is actionable.
-2. Select a workspace and start an agent from the card.
-3. Link the returned agent and workspace IDs to a new run.
+2. Select a configured agent profile and an existing workspace, or create a Git worktree with an optional base ref and branch name.
+3. Start a new agent, or attach an existing unlinked agent from the selected project, and link its agent and workspace IDs to a new run.
 4. Move the card to In Progress after agent creation succeeds.
 5. Overlay agent runtime state without replacing the card's workflow state.
 6. Suggest review when a run finishes; leave the actual transition to the user.
@@ -71,8 +71,11 @@ The initial compatibility target is Paseo `>=0.10.2 <0.11.0`. Paseo 0.10.2 expos
 - Card creation, editing, filtering, movement, ordering, and guarded deletion.
 - Wide and compact React Native layouts using Paseo theme tokens.
 - JSON backup copy and validated, confirmed import.
-- Explicit workspace and provider/model selection before agent creation.
+- Configured Paseo agent profiles instead of separate provider and model controls.
+- Explicit existing-workspace selection or new Git worktree creation, including optional workspace title, base ref, and branch name.
+- Existing unlinked project agents can be attached to a card without replacing their agent or workspace identity.
 - Durable run records, latest-agent status and navigation, and label-based reconciliation.
+- Column-aware actions: Start agent in Ready; Open agent and New attempt in In Progress; Request changes and Mark Done in In Review.
 - Conflict retry for small persisted operations.
 - Sidebar and Command Center navigation.
 

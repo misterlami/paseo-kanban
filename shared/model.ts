@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BOARD_DATA_VERSION = 1 as const;
+export const BOARD_DATA_VERSION = 2 as const;
 export const DISPLAY_SETTINGS_VERSION = 1 as const;
 
 export const BOARD_COLUMNS = ["backlog", "todo", "in_progress", "in_review", "done"] as const;
@@ -49,6 +49,8 @@ export const RunSchema = z
     agentId: z.string().min(1),
     workspaceId: z.string().min(1),
     provider: z.string().min(1),
+    agentProfileId: z.string().min(1).nullable().default(null),
+    agentProfileName: z.string().min(1).nullable().default(null),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -167,4 +169,5 @@ export const AGENT_LABELS = {
   boardId: "kanban.boardId",
   cardId: "kanban.cardId",
   runId: "kanban.runId",
+  agentProfileId: "kanban.agentProfileId",
 } as const;

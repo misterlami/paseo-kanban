@@ -1,0 +1,29 @@
+{
+  "name": "paseo-kanban",
+  "private": true,
+  "version": "0.1.0",
+  "files": [
+    "paseo-plugin.json",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "shared/model.ts",
+    "shared/operations.ts",
+    "shared/settings.ts"
+  ],
+  "scripts": {
+    "check": "npm run typecheck && npm test",
+    "test": "tsx --test shared/*.test.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit"
+  },
+  "devDependencies": {
+    "@getpaseo/plugin": "0.10.2",
+    "@types/node": "^22.15.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  }
+}

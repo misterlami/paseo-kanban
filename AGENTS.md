@@ -4,13 +4,14 @@
 
 Build a native Kanban plugin for [Paseo](https://paseo.sh/). Cards are durable work items. Agents are execution attempts linked to cards through run records.
 
-The current public [plugin reference](https://paseo.sh/docs/plugins/reference) and [SDK reference](https://paseo.sh/docs/sdk/reference) are authoritative. Target Paseo `>=0.10.2 <0.11.0` until an explicit compatibility upgrade changes the manifest and tests.
+The current public [plugin reference](https://paseo.sh/docs/plugins/reference) and [SDK reference](https://paseo.sh/docs/sdk/reference) are authoritative for current releases. Target Paseo `>=0.10.2 <0.11.0` until an explicit compatibility upgrade changes the manifest and tests. For this pinned release, the installed SDK types are authoritative where later public documentation differs.
 
 ## Version 0.1 contract
 
 - One board per Paseo project on one selected host.
-- Fixed columns: Backlog, Todo, In Progress, In Review, Done.
+- Fixed columns: Backlog, Ready, In Progress, In Review, Done.
 - Manual card creation, editing, filtering, movement, and ordering.
+- Backlog and Done cards must move to Ready before starting an agent.
 - Explicit workspace selection before starting an agent.
 - One card may have multiple runs; each run links one Paseo agent and workspace.
 - Agent state is an overlay on card state.
@@ -19,7 +20,7 @@ The current public [plugin reference](https://paseo.sh/docs/plugins/reference) a
 
 ## Architecture
 
-- Register the full-page UI with `addScreen` and the navigation row with `addSidebarHeaderItem`.
+- Register the full-page UI with `addSurface` and the navigation row with `addSidebarItem`, as exposed by Paseo 0.10.2.
 - Use the existing Paseo client from `usePaseo()` or contribution callbacks. Never create a second client from plugin code.
 - Use the Paseo SDK for normal agent, workspace, provider, project, and configuration operations.
 - Use plugin RPCs only for plugin-specific daemon-side behavior.

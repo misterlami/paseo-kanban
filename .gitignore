@@ -1,0 +1,43 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.tgz
+
+# Local package-manager state and credentials
+.npm/
+.npmrc
+.pnpm-store/
+.yarn/
+
+# Environment files and private key material
+.env
+.env.*
+!.env.example
+*.key
+*.keystore
+*.jks
+*.p12
+*.pem
+*.pfx
+
+# Logs and process state
+*.log
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editors and operating systems
+.DS_Store
+.AppleDouble
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+Desktop.ini
+Thumbs.db

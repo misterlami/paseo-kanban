@@ -9,6 +9,7 @@ import { applyBoardOperation, cardsInColumn } from "../shared/operations";
 import { runStatus } from "../shared/runState";
 import { boardDataSettings } from "../shared/settings";
 import { errorMessage } from "./errors";
+import { RunStatusBadge } from "./RunStatusBadge";
 
 const boardRpc = settingsRpc(boardDataSettings.id);
 
@@ -48,7 +49,11 @@ function RunRow({ hostId, isCandidate, navigation, run, styles, theme }: RunRowP
       <View style={styles.rowWrap}>
         <Text style={styles.runTitle}>{agent?.title ?? run.agentProfileName ?? "Agent attempt"}</Text>
         {isCandidate ? <Text style={styles.candidate}>Review candidate</Text> : null}
-        <Text style={[styles.badge, { backgroundColor: statusColor }]}>{status.label}</Text>
+        <RunStatusBadge
+          color={statusColor}
+          status={status}
+          textColor={theme.colors.accentForeground}
+        />
       </View>
       <Text style={styles.muted}>Profile: {run.agentProfileName ?? agent?.model ?? run.provider}</Text>
       <Text style={styles.muted}>Workspace: {run.workspaceName ?? run.workspaceId}</Text>
@@ -61,7 +66,7 @@ function RunRow({ hostId, isCandidate, navigation, run, styles, theme }: RunRowP
           onPress={() => navigation.openAgent({ agentId: run.agentId, serverId: hostId })}
           style={styles.button}
         >
-          <Text style={styles.buttonText}>Open agent</Text>
+          <Text style={styles.buttonText}>View Agent</Text>
         </Pressable>
       ) : null}
     </View>
@@ -124,13 +129,6 @@ function createStyles(theme: PluginAgentPanelProps["theme"], compact: boolean) {
     },
     rowWrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
     runTitle: { color: theme.colors.foreground, fontSize: 12, fontWeight: "700" },
-    badge: {
-      color: theme.colors.accentForeground,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      fontSize: 10,
-      fontWeight: "800",
-    },
     candidate: {
       color: theme.colors.accent,
       borderColor: theme.colors.accent,

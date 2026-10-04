@@ -9,6 +9,7 @@ import {
   type Run,
 } from "../shared/model";
 import { runStatus, type RunStatusTone } from "../shared/runState";
+import { RunStatusBadge } from "./RunStatusBadge";
 import type { BoardStyles } from "./useBoardStyles";
 import type { AgentSummary, WorkspaceSummary } from "./usePaseoDirectory";
 
@@ -156,6 +157,7 @@ interface CardDetailsPanelProps {
   onOpenAgent: ((agentId: string) => void) | undefined;
   runs: readonly Run[];
   statusPalette: Record<RunStatusTone, string>;
+  statusTextColor: string;
   styles: BoardStyles;
   workspaces: readonly WorkspaceSummary[];
 }
@@ -168,6 +170,7 @@ export function CardDetailsPanel({
   onOpenAgent,
   runs,
   statusPalette,
+  statusTextColor,
   styles,
   workspaces,
 }: CardDetailsPanelProps) {
@@ -211,9 +214,11 @@ export function CardDetailsPanel({
                   <View style={styles.runHeader}>
                     <Text style={styles.runTitle}>Attempt {attempt}</Text>
                     {index === 0 ? <Text style={styles.reviewCandidate}>Review candidate</Text> : null}
-                    <View style={[styles.badge, { backgroundColor: statusPalette[status.tone] }]}>
-                      <Text style={styles.badgeText}>{status.label}</Text>
-                    </View>
+                    <RunStatusBadge
+                      color={statusPalette[status.tone]}
+                      status={status}
+                      textColor={statusTextColor}
+                    />
                   </View>
                   <View style={styles.runMetadata}>
                     <Text style={styles.muted}>
@@ -230,7 +235,7 @@ export function CardDetailsPanel({
                       onPress={() => onOpenAgent(run.agentId)}
                       style={styles.button}
                     >
-                      <Text style={styles.buttonText}>Open agent</Text>
+                      <Text style={styles.buttonText}>View Agent</Text>
                     </Pressable>
                   ) : null}
                 </View>
@@ -245,7 +250,7 @@ export function CardDetailsPanel({
           onPress={() => onNewAttempt(card)}
           style={[styles.button, styles.detailsAction]}
         >
-          <Text style={styles.buttonText}>New attempt</Text>
+          <Text style={styles.buttonText}>New Agent</Text>
         </Pressable>
       ) : null}
     </View>
@@ -488,7 +493,7 @@ export function AgentLauncherPanel({
           ]}
         >
           <Text style={[styles.buttonText, canStart && !working ? styles.primaryButtonText : styles.disabledLauncherActionText]}>
-            {working ? "Working…" : launcher.action === "attach" ? "Attach agent" : "Start agent"}
+            {working ? "Working…" : launcher.action === "attach" ? "Attach Agent" : "Start Agent"}
           </Text>
         </Pressable>
         <Pressable accessibilityRole="button" onPress={onCancel} style={[styles.button, styles.launcherAction]}>

@@ -292,9 +292,10 @@ test("migrates version 2 runs with profile metadata", () => {
 
 test("presents agent states and only continues eligible idle agents", () => {
   assert.deepEqual(runStatus(undefined), { label: "Agent missing", tone: "warning" });
+  assert.deepEqual(runStatus({ status: "idle" }), { label: "Idle", tone: "muted" });
   assert.deepEqual(
     runStatus({ status: "idle", attentionReason: "permission" }),
-    { label: "Permission required", tone: "warning" },
+    { label: "Permission required", motion: "pulse", tone: "warning" },
   );
   assert.deepEqual(
     runStatus({ status: "error", attentionReason: "error" }),
@@ -304,7 +305,14 @@ test("presents agent states and only continues eligible idle agents", () => {
     runStatus({ status: "idle", attentionReason: "finished" }),
     { label: "Review suggested", tone: "success" },
   );
-  assert.deepEqual(runStatus({ status: "running" }), { label: "Running", tone: "accent" });
+  assert.deepEqual(
+    runStatus({ status: "initializing" }),
+    { label: "Initializing", motion: "pulse", tone: "accent" },
+  );
+  assert.deepEqual(
+    runStatus({ status: "running" }),
+    { label: "Running", motion: "pulse", tone: "accent" },
+  );
   assert.deepEqual(runStatus({ status: "closed" }), { label: "Closed", tone: "muted" });
   assert.deepEqual(
     runStatus({ status: "idle", archivedAt: NOW }),

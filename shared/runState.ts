@@ -8,6 +8,7 @@ export interface AgentRunState {
 
 export interface RunStatusPresentation {
   label: string;
+  motion?: "pulse";
   tone: RunStatusTone;
 }
 
@@ -15,7 +16,7 @@ export function runStatus(agent: AgentRunState | null | undefined): RunStatusPre
   if (!agent) return { label: "Agent missing", tone: "warning" };
   if (agent.archivedAt) return { label: "Archived", tone: "muted" };
   if (agent.attentionReason === "permission") {
-    return { label: "Permission required", tone: "warning" };
+    return { label: "Permission required", motion: "pulse", tone: "warning" };
   }
   if (agent.attentionReason === "error" || agent.status === "error") {
     return { label: "Error", tone: "danger" };
@@ -23,9 +24,10 @@ export function runStatus(agent: AgentRunState | null | undefined): RunStatusPre
   if (agent.attentionReason === "finished") {
     return { label: "Review suggested", tone: "success" };
   }
-  if (agent.status === "running" || agent.status === "initializing") {
-    return { label: "Running", tone: "accent" };
+  if (agent.status === "initializing") {
+    return { label: "Initializing", motion: "pulse", tone: "accent" };
   }
+  if (agent.status === "running") return { label: "Running", motion: "pulse", tone: "accent" };
   if (agent.status === "closed") return { label: "Closed", tone: "muted" };
   return { label: "Idle", tone: "muted" };
 }

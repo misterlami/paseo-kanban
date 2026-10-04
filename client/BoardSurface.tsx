@@ -729,6 +729,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
               success: theme.colors.statusSuccess,
               warning: theme.colors.statusWarning,
             }}
+            statusTextColor={theme.colors.accentForeground}
             styles={styles}
             workspaces={directory.workspaces}
           />
@@ -839,6 +840,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                   success: theme.colors.statusSuccess,
                   warning: theme.colors.statusWarning,
                 }}
+                statusTextColor={theme.colors.accentForeground}
                 styles={styles}
               />
             );

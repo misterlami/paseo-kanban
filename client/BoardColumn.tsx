@@ -7,6 +7,7 @@ import {
 } from "../shared/model";
 import { adjacentColumn } from "../shared/operations";
 import { isActiveAgent, runStatus, type RunStatusTone } from "../shared/runState";
+import { RunStatusBadge } from "./RunStatusBadge";
 import type { BoardStyles } from "./useBoardStyles";
 import type { AgentSummary } from "./usePaseoDirectory";
 
@@ -29,6 +30,7 @@ interface BoardColumnProps {
   onRun: (card: Card) => void;
   runs: readonly Run[];
   statusPalette: StatusPalette;
+  statusTextColor: string;
   styles: BoardStyles;
 }
 
@@ -49,6 +51,7 @@ export function BoardColumn({
   onRun,
   runs,
   statusPalette,
+  statusTextColor,
   styles,
 }: BoardColumnProps) {
   return (
@@ -83,9 +86,7 @@ export function BoardColumn({
               </Text>
             ) : null}
             {status ? (
-              <View style={[styles.badge, { backgroundColor: statusColor }]}>
-                <Text style={styles.badgeText}>{status.label}</Text>
-              </View>
+              <RunStatusBadge color={statusColor} status={status} textColor={statusTextColor} />
             ) : null}
             <View style={styles.cardActions}>
               {left ? (
@@ -128,17 +129,27 @@ export function BoardColumn({
               ) : null}
             </View>
             <View style={styles.cardActions}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`View details and run history for ${card.key}`}
-                onPress={() => onViewDetails(card)}
-                style={styles.button}
-              >
-                <Text style={styles.buttonText}>Details</Text>
-              </Pressable>
-              <Pressable accessibilityRole="button" onPress={() => onEdit(card)} style={styles.button}>
-                <Text style={styles.buttonText}>Edit</Text>
-              </Pressable>
+              {latestRun && onOpenAgent ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onOpenAgent(latestRun.agentId)}
+                  style={[
+                    styles.button,
+                    card.column === "in_progress" && activeAgent && styles.primaryButton,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.buttonText,
+                      card.column === "in_progress" &&
+                        activeAgent &&
+                        styles.primaryButtonText,
+                    ]}
+                  >
+                    View Agent
+                  </Text>
+                </Pressable>
+              ) : null}
               {card.column === "backlog" || card.column === "done" ? (
                 <Pressable
                   accessibilityRole="button"
@@ -156,29 +167,18 @@ export function BoardColumn({
                   onPress={() => onRun(card)}
                   style={[styles.button, styles.primaryButton]}
                 >
-                  <Text style={[styles.buttonText, styles.primaryButtonText]}>Start agent</Text>
+                  <Text style={[styles.buttonText, styles.primaryButtonText]}>Start Agent</Text>
                 </Pressable>
               ) : card.column === "in_progress" ? (
-                <>
-                  {activeAgent && latestRun && onOpenAgent ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => onOpenAgent(latestRun.agentId)}
-                      style={[styles.button, styles.primaryButton]}
-                    >
-                      <Text style={[styles.buttonText, styles.primaryButtonText]}>Open agent</Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => onRun(card)}
-                    style={[styles.button, !latestRun && styles.primaryButton]}
-                  >
-                    <Text style={[styles.buttonText, !latestRun && styles.primaryButtonText]}>
-                      {latestRun ? "New attempt" : "Start agent"}
-                    </Text>
-                  </Pressable>
-                </>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => onRun(card)}
+                  style={[styles.button, !latestRun && styles.primaryButton]}
+                >
+                  <Text style={[styles.buttonText, !latestRun && styles.primaryButtonText]}>
+                    {latestRun ? "New Agent" : "Start Agent"}
+                  </Text>
+                </Pressable>
               ) : (
                 <>
                   <Pressable
@@ -186,7 +186,7 @@ export function BoardColumn({
                     onPress={() => onRequestChanges(card)}
                     style={styles.button}
                   >
-                    <Text style={styles.buttonText}>Request changes</Text>
+                    <Text style={styles.buttonText}>Request Changes</Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
@@ -197,17 +197,22 @@ export function BoardColumn({
                   </Pressable>
                 </>
               )}
-              {latestRun && onOpenAgent && !(card.column === "in_progress" && activeAgent) ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => onOpenAgent(latestRun.agentId)}
-                  style={styles.button}
-                >
-                  <Text style={styles.buttonText}>Open agent</Text>
-                </Pressable>
-              ) : null}
+            </View>
+            <View style={styles.cardActions}>
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel={`View details and run history for ${card.key}`}
+                onPress={() => onViewDetails(card)}
+                style={styles.button}
+              >
+                <Text style={styles.buttonText}>Details</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => onEdit(card)} style={styles.button}>
+                <Text style={styles.buttonText}>Edit</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${card.key}`}
                 onPress={() => onDelete(card.id)}
                 style={[styles.button, confirmDeleteCardId === card.id && styles.dangerButton]}
               >
@@ -217,7 +222,7 @@ export function BoardColumn({
                     confirmDeleteCardId === card.id && styles.dangerButtonText,
                   ]}
                 >
-                  {confirmDeleteCardId === card.id ? "Confirm delete" : "Delete"}
+                  {confirmDeleteCardId === card.id ? "Confirm Delete" : "Delete"}
                 </Text>
               </Pressable>
             </View>

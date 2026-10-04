@@ -366,8 +366,6 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
         cardKey: { color: theme.colors.accent, fontSize: 10, fontWeight: "800", letterSpacing: 0.6 },
         cardTitle: { color: theme.colors.foreground, fontSize: 14, fontWeight: "700", lineHeight: 19 },
         cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-        badge: { alignSelf: "flex-start", borderRadius: 0, paddingHorizontal: 7, paddingVertical: 3 },
-        badgeText: { color: theme.colors.accentForeground, fontSize: 10, fontWeight: "800" },
         error: { color: theme.colors.statusDanger, fontSize: 13 },
         warning: { color: theme.colors.statusWarning, fontSize: 13 },
         success: { color: theme.colors.statusSuccess, fontSize: 13 },

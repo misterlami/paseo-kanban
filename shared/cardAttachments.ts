@@ -43,11 +43,17 @@ export function findCardAttachments(data: BoardData, query: string) {
     .map((card) => {
       const board = boardsById.get(card.boardId);
       const description = card.description.trim();
+      const descriptionSummary = description.replace(/\s+/g, " ").slice(0, 120);
       return {
         id: card.id,
         identifier: card.key,
         title: card.title,
-        subtitle: `${board?.name ?? "Kanban"} · ${BOARD_COLUMN_LABELS[card.column]}`,
+        subtitle: [
+          `${board?.name ?? "Kanban"} · ${BOARD_COLUMN_LABELS[card.column]}`,
+          descriptionSummary,
+        ]
+          .filter(Boolean)
+          .join(" · "),
         url: `paseo://kanban/card/${encodeURIComponent(card.id)}`,
         text: [
           `# ${card.key}: ${card.title}`,

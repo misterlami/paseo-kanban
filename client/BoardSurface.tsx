@@ -87,6 +87,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const [projectFilter, setProjectFilter] = useState("");
   const [filter, setFilter] = useState("");
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [savingCard, setSavingCard] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<NullableString>(null);
   const [runCardId, setRunCardId] = useState<NullableString>(null);
   const [launcher, setLauncher] = useState<AgentLauncherState | null>(null);
@@ -94,6 +95,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const [confirmDeleteCardId, setConfirmDeleteCardId] = useState<NullableString>(null);
   const [importText, setImportText] = useState<NullableString>(null);
   const [importValidated, setImportValidated] = useState<BoardData | null>(null);
+  const cardSaveInFlight = useRef(false);
   const ensuringProject = useRef<NullableString>(null);
   const displayInitialized = useRef(false);
   const reconciling = useRef(false);
@@ -311,7 +313,8 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   };
 
   const saveEditor = async () => {
-    if (!editor || !board) return;
+    if (!editor || !board || cardSaveInFlight.current || !editor.title.trim()) return;
+    const mode = editor.mode;
     const now = new Date().toISOString();
     const operation: BoardOperation =
       editor.mode === "create"
@@ -332,10 +335,15 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
             now,
           };
     try {
-      await action([operation]);
+      cardSaveInFlight.current = true;
+      setSavingCard(true);
+      await action([operation], mode === "create" ? "Card created" : "Card updated");
       setEditor(null);
     } catch {
       // The editor remains open so the user's input is not lost.
+    } finally {
+      cardSaveInFlight.current = false;
+      setSavingCard(false);
     }
   };
 
@@ -346,21 +354,19 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   };
 
   const openLauncher = (card: Card) => {
-    const latestRun = boardSettings.values.runs
-      .filter((run) => run.cardId === card.id)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
     setEditor(null);
     setSelectedCardId(null);
     setRunCardId(card.id);
     setLauncher(withLauncherDefaults({
       action: "start",
-      agentProfileId: latestRun?.agentProfileId ?? null,
+      agentProfileId: null,
       workspaceMode: "existing",
-      workspaceId: latestRun?.workspaceId ?? null,
+      workspaceId: null,
       workspaceTitle: `${card.key}: ${card.title}`,
       baseRef: "",
       branchName: "",
       attachAgentId: null,
+      moveAttachedCardToInProgress: true,
     }, directory.agentProfiles, projectWorkspaces, selectedProjectId));
     void directory.refreshAgentProfiles();
   };
@@ -412,7 +418,10 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
             },
           },
         ];
-        if (card.column === "todo" || card.column === "in_review") {
+        const moveAttachedCard =
+          launcher.moveAttachedCardToInProgress &&
+          (card.column === "todo" || card.column === "in_review");
+        if (moveAttachedCard) {
           operations.push({
             type: "move-card",
             cardId: card.id,
@@ -422,7 +431,10 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           });
         }
         await persistOperations(operations);
-        toast.show("Agent attached", { variant: "success" });
+        toast.show(
+          moveAttachedCard ? "Agent attached and card moved to In Progress" : "Agent attached",
+          { variant: "success" },
+        );
         closeLauncher();
         return;
       }
@@ -700,7 +712,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           onChange={setEditor}
           onSave={() => void saveEditor()}
           placeholderColor={theme.colors.foregroundMuted}
-          saving={boardSettings.saving}
+          saving={savingCard}
           styles={styles}
         />
       ) : null}
@@ -747,6 +759,10 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           onStart={() => void runAgent()}
           placeholderColor={theme.colors.foregroundMuted}
           profilesSupported={directory.profilesSupported}
+          showAttachMoveOption={(() => {
+            const card = boardSettings.values.cards.find((candidate) => candidate.id === runCardId);
+            return card?.column === "todo" || card?.column === "in_review";
+          })()}
           working={startingAgent}
           styles={styles}
           workspaces={projectWorkspaces}

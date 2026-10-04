@@ -1,4 +1,5 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
+import { useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import type { AgentProfile } from "../shared/agentProfiles";
 import {
@@ -92,6 +93,9 @@ export function CardEditorPanel({
   saving,
   styles,
 }: CardEditorPanelProps) {
+  const [hoveredControl, setHoveredControl] = useState<string | null>(null);
+  const saveDisabled = !editor.title.trim() || saving;
+
   return (
     <View style={styles.panel}>
       <Text style={styles.cardTitle}>{editor.mode === "create" ? "Create card" : "Edit card"}</Text>
@@ -100,8 +104,9 @@ export function CardEditorPanel({
         placeholder="Title"
         placeholderTextColor={placeholderColor}
         value={editor.title}
+        editable={!saving}
         onChangeText={(title) => onChange({ ...editor, title })}
-        style={styles.input}
+        style={[styles.input, saving && styles.disabledInput]}
       />
       <TextInput
         accessibilityLabel="Card description"
@@ -109,8 +114,9 @@ export function CardEditorPanel({
         placeholder="Description"
         placeholderTextColor={placeholderColor}
         value={editor.description}
+        editable={!saving}
         onChangeText={(description) => onChange({ ...editor, description })}
-        style={[styles.input, styles.descriptionInput]}
+        style={[styles.input, styles.descriptionInput, saving && styles.disabledInput]}
       />
       {editor.mode === "create" ? (
         <View style={styles.toolbar}>
@@ -120,9 +126,18 @@ export function CardEditorPanel({
               <Pressable
                 key={column}
                 accessibilityRole="button"
-                accessibilityState={{ selected }}
+                accessibilityState={{ disabled: saving, selected }}
+                disabled={saving}
+                onHoverIn={() => setHoveredControl(column)}
+                onHoverOut={() => setHoveredControl((current) => current === column ? null : current)}
                 onPress={() => onChange({ ...editor, column })}
-                style={[styles.chip, selected && styles.selectedChip]}
+                style={({ pressed }) => [
+                  styles.chip,
+                  selected && styles.selectedChip,
+                  hoveredControl === column && !saving && styles.hoveredControl,
+                  pressed && styles.pressedControl,
+                  saving && styles.disabledControl,
+                ]}
               >
                 <Text style={[styles.buttonText, selected && styles.selectedChipText]}>
                   {BOARD_COLUMN_LABELS[column]}
@@ -135,14 +150,44 @@ export function CardEditorPanel({
       <View style={styles.cardActions}>
         <Pressable
           accessibilityRole="button"
-          disabled={!editor.title.trim() || saving}
+          accessibilityState={{ busy: saving, disabled: saveDisabled }}
+          disabled={saveDisabled}
+          onHoverIn={() => setHoveredControl("save")}
+          onHoverOut={() => setHoveredControl((current) => current === "save" ? null : current)}
           onPress={onSave}
-          style={[styles.button, styles.primaryButton]}
+          style={({ pressed }) => [
+            styles.button,
+            styles.editorAction,
+            styles.primaryButton,
+            hoveredControl === "save" && !saveDisabled && styles.hoveredControl,
+            pressed && styles.pressedControl,
+            saveDisabled && styles.disabledControl,
+          ]}
         >
-          <Text style={[styles.buttonText, styles.primaryButtonText]}>Save</Text>
+          <Text style={[
+            styles.buttonText,
+            styles.primaryButtonText,
+            saveDisabled && styles.disabledControlText,
+          ]}>
+            {saving ? "Saving…" : "Save"}
+          </Text>
         </Pressable>
-        <Pressable accessibilityRole="button" onPress={onCancel} style={styles.button}>
-          <Text style={styles.buttonText}>Cancel</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: saving }}
+          disabled={saving}
+          onHoverIn={() => setHoveredControl("cancel")}
+          onHoverOut={() => setHoveredControl((current) => current === "cancel" ? null : current)}
+          onPress={onCancel}
+          style={({ pressed }) => [
+            styles.button,
+            styles.editorAction,
+            hoveredControl === "cancel" && !saving && styles.hoveredControl,
+            pressed && styles.pressedControl,
+            saving && styles.disabledControl,
+          ]}
+        >
+          <Text style={[styles.buttonText, saving && styles.disabledControlText]}>Cancel</Text>
         </Pressable>
       </View>
     </View>
@@ -266,6 +311,7 @@ export interface AgentLauncherState {
   baseRef: string;
   branchName: string;
   attachAgentId: string | null;
+  moveAttachedCardToInProgress: boolean;
 }
 
 interface AgentLauncherPanelProps {
@@ -278,6 +324,7 @@ interface AgentLauncherPanelProps {
   onStart: () => void;
   placeholderColor: string;
   profilesSupported: boolean | null;
+  showAttachMoveOption: boolean;
   working: boolean;
   styles: BoardStyles;
   workspaces: readonly WorkspaceSummary[];
@@ -293,6 +340,7 @@ export function AgentLauncherPanel({
   onStart,
   placeholderColor,
   profilesSupported,
+  showAttachMoveOption,
   working,
   styles,
   workspaces,
@@ -477,6 +525,32 @@ export function AgentLauncherPanel({
             {attachableAgents.length === 0 ? (
               <Text style={styles.warning}>No unlinked agents are available in this project.</Text>
             ) : null}
+          </View>
+          <View style={styles.attachBehavior}>
+            {showAttachMoveOption ? (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: launcher.moveAttachedCardToInProgress }}
+                onPress={() => onChange({
+                  ...launcher,
+                  moveAttachedCardToInProgress: !launcher.moveAttachedCardToInProgress,
+                })}
+                style={styles.attachBehaviorControl}
+              >
+                <View style={[
+                  styles.checkbox,
+                  launcher.moveAttachedCardToInProgress && styles.selectedCheckbox,
+                ]}>
+                  {launcher.moveAttachedCardToInProgress ? (
+                    <Text style={styles.checkboxMark}>✓</Text>
+                  ) : null}
+                </View>
+                <Text style={styles.sectionLabel}>Move card to In Progress</Text>
+              </Pressable>
+            ) : null}
+            <Text style={styles.muted}>
+              This links the existing agent and its workspace to the card. No message will be sent.
+            </Text>
           </View>
         </View>
       )}

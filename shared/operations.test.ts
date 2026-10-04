@@ -318,8 +318,13 @@ test("presents agent states and only continues eligible idle agents", () => {
     runStatus({ status: "idle", archivedAt: NOW }),
     { label: "Archived", tone: "muted" },
   );
+  assert.equal(canContinueAgent({ status: "idle" }), true);
   assert.equal(canContinueAgent({ status: "idle", attentionReason: "finished" }), true);
+  assert.equal(canContinueAgent(undefined), false);
+  assert.equal(canContinueAgent({ status: "idle", attentionReason: "permission" }), false);
+  assert.equal(canContinueAgent({ status: "error", attentionReason: "error" }), false);
   assert.equal(canContinueAgent({ status: "running" }), false);
+  assert.equal(canContinueAgent({ status: "closed" }), false);
   assert.equal(canContinueAgent({ status: "idle", archivedAt: NOW }), false);
 });
 
@@ -336,6 +341,7 @@ test("builds searchable card attachment snapshots", () => {
   const items = findCardAttachments(data, "reconnect");
   assert.equal(items.length, 1);
   assert.equal(items[0]?.identifier, "PK-1");
+  assert.match(items[0]?.subtitle ?? "", /Keep agent links stable after reconnect/);
   assert.match(items[0]?.text ?? "", /Status: Ready/);
   assert.match(items[0]?.url ?? "", /^paseo:\/\/kanban\/card\//);
   assert.equal(searchKanbanCards.output.safeParse({ items }).success, true);
@@ -366,11 +372,36 @@ test("materializes every agent profile execution option", () => {
       featureValues: { review: true },
     }),
     {
-      provider: "codex",
-      model: "gpt-6.1-sol",
+      provider: "codex/gpt-6.1-sol",
       modeId: "full-access",
       thinkingOptionId: "xhigh",
       featureValues: { review: true },
     },
+  );
+});
+
+test("preserves an agent profile provider that already includes its model", () => {
+  assert.deepEqual(
+    materializeAgentProfile({
+      id: "agent_profile_2",
+      name: "Review",
+      provider: "codex/gpt-6.1-sol",
+      modeId: "full-access",
+    }),
+    {
+      provider: "codex/gpt-6.1-sol",
+      modeId: "full-access",
+    },
+  );
+});
+
+test("rejects an agent profile without a model", () => {
+  assert.throws(
+    () => materializeAgentProfile({
+      id: "agent_profile_3",
+      name: "Incomplete",
+      provider: "codex",
+    }),
+    /must specify a provider and model/,
   );
 });

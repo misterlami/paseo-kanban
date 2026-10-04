@@ -53,6 +53,7 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
           paddingVertical: 7,
         },
         descriptionInput: { minHeight: 96, textAlignVertical: "top" },
+        disabledInput: { opacity: 0.58 },
         button: {
           minHeight: 34,
           justifyContent: "center",
@@ -68,6 +69,15 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
         buttonText: { color: theme.colors.foreground, fontSize: 13, fontWeight: "600" },
         primaryButtonText: { color: theme.colors.accentForeground },
         dangerButtonText: { color: theme.colors.statusDanger },
+        editorAction: { minWidth: 88, alignItems: "center" },
+        hoveredControl: { borderColor: theme.colors.accent, opacity: 0.86 },
+        pressedControl: { opacity: 0.62 },
+        disabledControl: {
+          backgroundColor: theme.colors.surface2,
+          borderColor: theme.colors.border,
+          opacity: 0.5,
+        },
+        disabledControlText: { color: theme.colors.foregroundMuted },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 7,
@@ -195,6 +205,38 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
           borderColor: theme.colors.border,
         },
         disabledLauncherActionText: { color: theme.colors.foregroundMuted },
+        attachBehavior: {
+          gap: 6,
+          paddingTop: 10,
+          borderTopWidth: 1,
+          borderTopColor: theme.colors.border,
+        },
+        attachBehaviorControl: {
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          minHeight: 32,
+        },
+        checkbox: {
+          width: 18,
+          height: 18,
+          alignItems: "center",
+          justifyContent: "center",
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          backgroundColor: theme.colors.surface0,
+        },
+        selectedCheckbox: {
+          borderColor: theme.colors.accent,
+          backgroundColor: theme.colors.accent,
+        },
+        checkboxMark: {
+          color: theme.colors.accentForeground,
+          fontSize: 12,
+          fontWeight: "800",
+          lineHeight: 14,
+        },
         projectButton: {
           minHeight: 36,
           maxWidth: compact ? "100%" : 420,

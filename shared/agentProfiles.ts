@@ -20,22 +20,35 @@ export const AgentProfilesSchema = z.array(AgentProfileSchema);
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
 
 export interface MaterializedAgentProfile {
-  provider: string;
-  model?: string;
+  provider: `${string}/${string}`;
   modeId?: string;
   thinkingOptionId?: string;
   featureValues?: Record<string, unknown>;
 }
 
 export function materializeAgentProfile(profile: AgentProfile): MaterializedAgentProfile {
+  const provider = profile.provider.trim();
   const model = profile.model?.trim();
   const modeId = profile.modeId?.trim();
   const thinkingOptionId = profile.thinkingOptionId?.trim();
   const featureValues = profile.featureValues;
 
+  const providerAndModel = provider.includes("/")
+    ? provider
+    : model
+      ? `${provider}/${model}`
+      : null;
+  const separatorIndex = providerAndModel?.indexOf("/") ?? -1;
+  if (
+    !providerAndModel ||
+    separatorIndex <= 0 ||
+    separatorIndex === providerAndModel.length - 1
+  ) {
+    throw new Error(`Agent profile "${profile.name}" must specify a provider and model.`);
+  }
+
   return {
-    provider: profile.provider.trim(),
-    ...(model ? { model } : {}),
+    provider: providerAndModel as `${string}/${string}`,
     ...(modeId ? { modeId } : {}),
     ...(thinkingOptionId ? { thinkingOptionId } : {}),
     ...(featureValues && Object.keys(featureValues).length > 0 ? { featureValues } : {}),

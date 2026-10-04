@@ -74,8 +74,7 @@ declare module "@getpaseo/client" {
 
   export interface AgentCreateOptions {
     config: {
-      provider: string;
-      model?: string;
+      provider: `${string}/${string}`;
       modeId?: string;
       thinkingOptionId?: string;
       featureValues?: Record<string, unknown>;

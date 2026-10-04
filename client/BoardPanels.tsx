@@ -9,7 +9,8 @@ import {
   type Card,
   type Run,
 } from "../shared/model";
-import { runStatus, type RunStatusTone } from "../shared/runState";
+import { adjacentColumn } from "../shared/operations";
+import { isActiveAgent, runStatus, type RunStatusTone } from "../shared/runState";
 import { RunStatusBadge } from "./RunStatusBadge";
 import type { BoardStyles } from "./useBoardStyles";
 import type { AgentSummary, WorkspaceSummary } from "./usePaseoDirectory";
@@ -196,10 +197,17 @@ export function CardEditorPanel({
 
 interface CardDetailsPanelProps {
   agents: readonly AgentSummary[];
+  allCards: readonly Card[];
   card: Card;
+  confirmDeleteCardId: string | null;
   onClose: () => void;
+  onDelete: (cardId: string) => void;
+  onEdit: (card: Card) => void;
+  onMove: (card: Card, column: BoardColumn, index: number) => void;
+  onMoveToEnd: (card: Card, column: BoardColumn) => void;
   onNewAttempt: (card: Card) => void;
   onOpenAgent: ((agentId: string) => void) | undefined;
+  onRequestChanges: (card: Card) => void;
   runs: readonly Run[];
   statusPalette: Record<RunStatusTone, string>;
   statusTextColor: string;
@@ -209,10 +217,17 @@ interface CardDetailsPanelProps {
 
 export function CardDetailsPanel({
   agents,
+  allCards,
   card,
+  confirmDeleteCardId,
   onClose,
+  onDelete,
+  onEdit,
+  onMove,
+  onMoveToEnd,
   onNewAttempt,
   onOpenAgent,
+  onRequestChanges,
   runs,
   statusPalette,
   statusTextColor,
@@ -222,6 +237,14 @@ export function CardDetailsPanel({
   const history = runs
     .filter((run) => run.cardId === card.id)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const position = allCards.findIndex((candidate) => candidate.id === card.id);
+  const latestRun = history[0];
+  const latestAgent = latestRun
+    ? agents.find((candidate) => candidate.id === latestRun.agentId)
+    : undefined;
+  const activeAgent = isActiveAgent(latestAgent);
+  const left = adjacentColumn(card.column, -1);
+  const right = adjacentColumn(card.column, 1);
 
   return (
     <View style={styles.panel}>
@@ -236,6 +259,138 @@ export function CardDetailsPanel({
       </View>
       <Text style={styles.detailsStatus}>{BOARD_COLUMN_LABELS[card.column]}</Text>
       {card.description ? <Text style={styles.text}>{card.description}</Text> : null}
+
+      <View style={styles.detailsSectionHeader}>
+        <Text style={styles.sectionLabel}>Actions</Text>
+      </View>
+      <View style={styles.cardActions}>
+        {left ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Move ${card.key} to ${BOARD_COLUMN_LABELS[left]}`}
+            onPress={() => onMoveToEnd(card, left)}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>← {BOARD_COLUMN_LABELS[left]}</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Move ${card.key} up`}
+          accessibilityState={{ disabled: position === 0 }}
+          disabled={position === 0}
+          onPress={() => onMove(card, card.column, position - 1)}
+          style={[styles.button, position === 0 && styles.disabledControl]}
+        >
+          <Text style={[styles.buttonText, position === 0 && styles.disabledControlText]}>↑ Up</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Move ${card.key} down`}
+          accessibilityState={{ disabled: position === allCards.length - 1 }}
+          disabled={position === allCards.length - 1}
+          onPress={() => onMove(card, card.column, position + 1)}
+          style={[styles.button, position === allCards.length - 1 && styles.disabledControl]}
+        >
+          <Text style={[styles.buttonText, position === allCards.length - 1 && styles.disabledControlText]}>
+            ↓ Down
+          </Text>
+        </Pressable>
+        {right ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Move ${card.key} to ${BOARD_COLUMN_LABELS[right]}`}
+            onPress={() => onMoveToEnd(card, right)}
+            style={styles.button}
+          >
+            <Text style={styles.buttonText}>{BOARD_COLUMN_LABELS[right]} →</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <View style={styles.cardActions}>
+        {latestRun && onOpenAgent ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onOpenAgent(latestRun.agentId)}
+            style={[
+              styles.button,
+              card.column === "in_progress" && activeAgent && styles.primaryButton,
+            ]}
+          >
+            <Text
+              style={[
+                styles.buttonText,
+                card.column === "in_progress" && activeAgent && styles.primaryButtonText,
+              ]}
+            >
+              View Agent
+            </Text>
+          </Pressable>
+        ) : null}
+        {card.column === "backlog" || card.column === "done" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${card.column === "done" ? "Reopen" : "Move"} ${card.key} to Ready`}
+            onPress={() => onMoveToEnd(card, "todo")}
+            style={[styles.button, styles.primaryButton]}
+          >
+            <Text style={[styles.buttonText, styles.primaryButtonText]}>
+              {card.column === "done" ? "Reopen to Ready" : "Move to Ready"}
+            </Text>
+          </Pressable>
+        ) : card.column === "todo" ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onNewAttempt(card)}
+            style={[styles.button, styles.primaryButton]}
+          >
+            <Text style={[styles.buttonText, styles.primaryButtonText]}>Start Agent</Text>
+          </Pressable>
+        ) : card.column === "in_progress" ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => onNewAttempt(card)}
+            style={[styles.button, !latestRun && styles.primaryButton]}
+          >
+            <Text style={[styles.buttonText, !latestRun && styles.primaryButtonText]}>
+              {latestRun ? "New Agent" : "Start Agent"}
+            </Text>
+          </Pressable>
+        ) : (
+          <>
+            <Pressable accessibilityRole="button" onPress={() => onRequestChanges(card)} style={styles.button}>
+              <Text style={styles.buttonText}>Request Changes</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => onMoveToEnd(card, "done")}
+              style={[styles.button, styles.primaryButton]}
+            >
+              <Text style={[styles.buttonText, styles.primaryButtonText]}>Mark Done</Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+      <View style={styles.cardActions}>
+        <Pressable accessibilityRole="button" onPress={() => onEdit(card)} style={styles.button}>
+          <Text style={styles.buttonText}>Edit</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${card.key}`}
+          onPress={() => onDelete(card.id)}
+          style={[styles.button, confirmDeleteCardId === card.id && styles.dangerButton]}
+        >
+          <Text
+            style={[
+              styles.buttonText,
+              confirmDeleteCardId === card.id && styles.dangerButtonText,
+            ]}
+          >
+            {confirmDeleteCardId === card.id ? "Confirm Delete" : "Delete"}
+          </Text>
+        </Pressable>
+      </View>
 
       <View style={styles.detailsSectionHeader}>
         <Text style={styles.sectionLabel}>Run history</Text>
@@ -289,15 +444,6 @@ export function CardDetailsPanel({
           </View>
         </ScrollView>
       )}
-      {card.column !== "backlog" && card.column !== "done" ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => onNewAttempt(card)}
-          style={[styles.button, styles.detailsAction]}
-        >
-          <Text style={styles.buttonText}>New Agent</Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }

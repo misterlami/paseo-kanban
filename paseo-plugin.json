@@ -2,6 +2,6 @@
   "id": "kanban",
   "description": "A native Kanban board for organizing Paseo agent work.",
   "requirements": {
-    "paseo": ">=0.10.2 <0.11.0"
+    "paseo": ">=0.10.2"
   }
 }

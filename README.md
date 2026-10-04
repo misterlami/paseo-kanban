@@ -53,7 +53,7 @@ A card owns workflow state. A run owns execution state. Completing an agent turn
 | Persistence | Store board data and display preferences in separate versioned settings documents |
 | Paseo integration | Create and observe agents through the existing Paseo SDK connection |
 
-The initial compatibility target is Paseo `>=0.10.2 <0.11.0`. Paseo 0.10.2 exposes `addSurface` and `addSidebarItem`; later public documentation uses renamed screen APIs. The implementation follows the installed 0.10.2 SDK contract.
+The compatibility target is Paseo `>=0.10.2`. Paseo 0.10.2 exposes `addSurface` and `addSidebarItem`; later public documentation uses renamed screen APIs. The implementation follows the installed 0.10.2 SDK contract and retains those APIs for backward compatibility.
 
 ## Planned workflow
 
@@ -70,7 +70,7 @@ The initial compatibility target is Paseo `>=0.10.2 <0.11.0`. Paseo 0.10.2 expos
 ## Included in 0.1
 
 - Versioned board and display settings.
-- Card creation, editing, filtering, movement, ordering, and guarded deletion.
+- Scan-first card summaries with editing, movement, ordering, agent actions, and guarded deletion in card details.
 - Wide and compact React Native layouts using Paseo theme tokens.
 - JSON backup copy and validated, confirmed import.
 - Configured Paseo agent profiles instead of separate provider and model controls.

@@ -353,6 +353,19 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     ]).catch(() => undefined);
   };
 
+  const deleteCard = (cardId: string) => {
+    if (confirmDeleteCardId !== cardId) {
+      setConfirmDeleteCardId(cardId);
+      return;
+    }
+    void action([{ type: "delete-card", cardId }])
+      .then(() => {
+        setConfirmDeleteCardId(null);
+        setSelectedCardId((selected) => selected === cardId ? null : selected);
+      })
+      .catch(() => undefined);
+  };
+
   const openLauncher = (card: Card) => {
     setEditor(null);
     setSelectedCardId(null);
@@ -722,8 +735,34 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         return card ? (
           <CardDetailsPanel
             agents={directory.agents}
+            allCards={cardsInColumn(boardSettings.values, card.boardId, card.column)}
             card={card}
-            onClose={() => setSelectedCardId(null)}
+            confirmDeleteCardId={confirmDeleteCardId}
+            onClose={() => {
+              setConfirmDeleteCardId(null);
+              setSelectedCardId(null);
+            }}
+            onDelete={deleteCard}
+            onEdit={(selected) => {
+              setConfirmDeleteCardId(null);
+              setSelectedCardId(null);
+              closeLauncher();
+              setEditor({
+                mode: "edit",
+                cardId: selected.id,
+                title: selected.title,
+                description: selected.description,
+                column: selected.column,
+              });
+            }}
+            onMove={moveCard}
+            onMoveToEnd={(selected, column) =>
+              moveCard(
+                selected,
+                column,
+                cardsInColumn(boardSettings.values, selected.boardId, column).length,
+              )
+            }
             onNewAttempt={(selected) => {
               setSelectedCardId(null);
               openLauncher(selected);
@@ -733,6 +772,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                 ? (agentId) => navigation.openAgent({ agentId, serverId: host.id })
                 : undefined
             }
+            onRequestChanges={(selected) => void requestChanges(selected)}
             runs={boardSettings.values.runs}
             statusPalette={{
               accent: theme.colors.accent,
@@ -803,51 +843,15 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
               <BoardColumnView
                 key={column}
                 agents={directory.agents}
-                allCards={allCards}
                 cards={cards}
                 column={column}
                 columnTone={COLUMN_TONES[column]}
-                confirmDeleteCardId={confirmDeleteCardId}
-                onDelete={(cardId) => {
-                  if (confirmDeleteCardId !== cardId) {
-                    setConfirmDeleteCardId(cardId);
-                    return;
-                  }
-                  void action([{ type: "delete-card", cardId }])
-                    .then(() => setConfirmDeleteCardId(null))
-                    .catch(() => undefined);
-                }}
-                onEdit={(card) => {
-                  setSelectedCardId(null);
-                  closeLauncher();
-                  setEditor({
-                    mode: "edit",
-                    cardId: card.id,
-                    title: card.title,
-                    description: card.description,
-                    column: card.column,
-                  });
-                }}
                 onViewDetails={(card) => {
+                  setConfirmDeleteCardId(null);
                   setEditor(null);
                   closeLauncher();
                   setSelectedCardId(card.id);
                 }}
-                onMove={moveCard}
-                onMoveToEnd={(card, column) =>
-                  moveCard(
-                    card,
-                    column,
-                    cardsInColumn(boardSettings.values, board.id, column).length,
-                  )
-                }
-                onOpenAgent={
-                  navigation
-                    ? (agentId) => navigation.openAgent({ agentId, serverId: host.id })
-                    : undefined
-                }
-                onRequestChanges={(card) => void requestChanges(card)}
-                onRun={openLauncher}
                 runs={boardSettings.values.runs}
                 statusPalette={{
                   accent: theme.colors.accent,

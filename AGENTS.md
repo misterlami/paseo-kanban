@@ -4,7 +4,7 @@
 
 Build a native Kanban plugin for [Paseo](https://paseo.sh/). Cards are durable work items. Agents are execution attempts linked to cards through run records.
 
-The current public [plugin reference](https://paseo.sh/docs/plugins/reference) and [SDK reference](https://paseo.sh/docs/sdk/reference) are authoritative for current releases. Target Paseo `>=0.10.2 <0.11.0` until an explicit compatibility upgrade changes the manifest and tests. For this pinned release, the installed SDK types are authoritative where later public documentation differs.
+The current public [plugin reference](https://paseo.sh/docs/plugins/reference) and [SDK reference](https://paseo.sh/docs/sdk/reference) are authoritative for current releases. Target Paseo `>=0.10.2`. The installed 0.10.2 SDK types remain authoritative for the legacy surface APIs used by this plugin where later public documentation differs.
 
 ## Version 0.1 contract
 

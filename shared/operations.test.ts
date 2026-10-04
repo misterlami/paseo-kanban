@@ -6,6 +6,7 @@ import {
   boardForProject,
   boardKeyPrefix,
   cardsInColumn,
+  persistedIndexForVisibleDrop,
 } from "./operations";
 import { migrateBoardData } from "./settings";
 import { materializeAgentProfile } from "./agentProfiles";
@@ -93,6 +94,17 @@ test("moves and reorders cards while normalizing positions", () => {
   assert.deepEqual(cardsInColumn(data, "board_1", "backlog").map((card) => card.id), ["c", "b"]);
   assert.deepEqual(cardsInColumn(data, "board_1", "backlog").map((card) => card.position), [0, 1]);
   assert.deepEqual(cardsInColumn(data, "board_1", "todo").map((card) => card.id), ["a"]);
+});
+
+test("maps filtered drag positions back to persisted column positions", () => {
+  const data = addCard(addCard(addCard(addCard(boardData(), "a"), "b"), "c"), "d");
+  const allCards = cardsInColumn(data, "board_1", "backlog");
+  const visibleCards = allCards.filter((card) => card.id === "b" || card.id === "d");
+
+  assert.equal(persistedIndexForVisibleDrop(allCards, visibleCards, 0), 1);
+  assert.equal(persistedIndexForVisibleDrop(allCards, visibleCards, 1), 3);
+  assert.equal(persistedIndexForVisibleDrop(allCards, visibleCards, 2), 4);
+  assert.equal(persistedIndexForVisibleDrop(allCards, [], 0), 4);
 });
 
 test("deleting a card removes its runs", () => {

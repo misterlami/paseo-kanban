@@ -256,6 +256,27 @@ export function adjacentColumn(column: BoardColumn, offset: -1 | 1): BoardColumn
   return BOARD_COLUMNS[index + offset] ?? null;
 }
 
+export function persistedIndexForVisibleDrop(
+  allDestinationCards: readonly Card[],
+  visibleDestinationCards: readonly Card[],
+  visibleIndex: number,
+): number {
+  const boundedIndex = Math.max(0, Math.min(visibleIndex, visibleDestinationCards.length));
+  const beforeCard = visibleDestinationCards[boundedIndex];
+  if (beforeCard) {
+    const index = allDestinationCards.findIndex((card) => card.id === beforeCard.id);
+    if (index >= 0) return index;
+  }
+
+  const previousCard = boundedIndex > 0 ? visibleDestinationCards[boundedIndex - 1] : undefined;
+  if (previousCard) {
+    const index = allDestinationCards.findIndex((card) => card.id === previousCard.id);
+    if (index >= 0) return index + 1;
+  }
+
+  return allDestinationCards.length;
+}
+
 export function boardForProject(data: BoardData, projectId: string): Board | undefined {
   return data.boards.find((board) => board.projectId === projectId);
 }

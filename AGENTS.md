@@ -10,7 +10,7 @@ The current public [plugin reference](https://paseo.sh/docs/plugins/reference) a
 
 - One board per Paseo project on one selected host.
 - Fixed columns: Backlog, Ready, In Progress, In Review, Done.
-- Manual card creation, editing, filtering, movement, and ordering.
+- Manual card creation, editing, filtering, movement, and ordering, with drag and drop on wide layouts.
 - Backlog and Done cards must move to Ready before starting an agent.
 - Explicit workspace selection before starting an agent.
 - One card may have multiple runs; each run links one Paseo agent and workspace.
@@ -44,7 +44,7 @@ The current public [plugin reference](https://paseo.sh/docs/plugins/reference) a
 - Use [React Native](https://reactnative.dev/) primitives and `onPress` handlers.
 - Use Paseo theme colors for all text, surfaces, controls, borders, and states.
 - Support both wide and compact layouts.
-- Prefer explicit move controls for the first release. Add drag and drop only after keyboard, mobile, and accessibility behavior is defined.
+- Treat drag and drop as a wide-layout enhancement. Preserve explicit move controls for compact layouts, keyboard use, accessibility, and recovery.
 - Never use HTML elements, CSS strings, `className`, `onClick`, `window`, `document`, `localStorage`, or `navigator` in cross-platform client components.
 
 ## Domain and persistence

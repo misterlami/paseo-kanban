@@ -353,6 +353,7 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
           fontSize: 10,
           fontWeight: "700",
         },
+        boardViewport: { flex: 1 },
         board: {
           flexGrow: 1,
           flexDirection: compact ? "column" : "row",
@@ -370,6 +371,10 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
           borderWidth: 1,
           borderTopWidth: 3,
           borderColor: theme.colors.border,
+        },
+        draggingColumn: {
+          zIndex: 100,
+          overflow: "visible",
         },
         columnHeader: {
           flexDirection: "row",
@@ -394,13 +399,37 @@ export function useBoardStyles(theme: PluginSurfaceProps["theme"], compact: bool
         },
         card: {
           minHeight: 112,
-          padding: 12,
-          gap: 12,
           borderRadius: 0,
           backgroundColor: theme.colors.surface0,
           borderWidth: 1,
           borderLeftWidth: 3,
           borderColor: theme.colors.border,
+        },
+        cardContent: {
+          flex: 1,
+          padding: 12,
+          gap: 12,
+        },
+        draggingCard: {
+          zIndex: 20,
+          opacity: 0.82,
+          borderColor: theme.colors.accent,
+          backgroundColor: theme.colors.surface2,
+        },
+        dropIndicator: {
+          height: 5,
+          borderWidth: 1,
+          borderColor: theme.colors.accent,
+          backgroundColor: theme.colors.accent,
+        },
+        dropIndicatorOverlay: {
+          position: "absolute",
+          zIndex: 30,
+          top: -6,
+          left: 0,
+          right: 0,
+          height: 3,
+          backgroundColor: theme.colors.accent,
         },
         cardFooter: {
           marginTop: "auto",

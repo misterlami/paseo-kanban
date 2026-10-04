@@ -3,7 +3,16 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { materializeAgentProfile, type AgentProfile } from "../shared/agentProfiles";
 import {
   AGENT_LABELS,
@@ -20,6 +29,7 @@ import {
   boardForProject,
   cardsInColumn,
   createId,
+  persistedIndexForVisibleDrop,
   type BoardOperation,
 } from "../shared/operations";
 import { canContinueAgent } from "../shared/runState";
@@ -48,6 +58,16 @@ const COLUMN_TONES = {
   done: "#0891b2",
 } satisfies Record<BoardColumn, string>;
 type NullableString = string | null;
+interface LayoutRect {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+interface DragTarget {
+  column: BoardColumn;
+  index: number;
+}
 
 function defaultWorkspaceId(workspaces: readonly WorkspaceSummary[], projectId: string | null): string | null {
   const available = workspaces.filter((workspace) => workspace.projectId === projectId);
@@ -99,6 +119,16 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const ensuringProject = useRef<NullableString>(null);
   const displayInitialized = useRef(false);
   const reconciling = useRef(false);
+  const boardScroll = useRef<ScrollView | null>(null);
+  const boardViewportView = useRef<View | null>(null);
+  const boardViewport = useRef<LayoutRect | null>(null);
+  const boardScrollX = useRef(0);
+  const boardContentWidth = useRef(0);
+  const columnLayouts = useRef(new Map<BoardColumn, LayoutRect>());
+  const cardLayouts = useRef(new Map<string, LayoutRect>());
+  const dragTargetRef = useRef<DragTarget | null>(null);
+  const [draggingCardId, setDraggingCardId] = useState<NullableString>(null);
+  const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
   const styles = useBoardStyles(theme, layout.compact);
 
   const currentBoard =
@@ -106,6 +136,13 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       ? boardForProject(boardSettings.values, selectedProjectId)
       : undefined;
   const directory = usePaseoDirectory(selectedProjectId, currentBoard?.id ?? null);
+
+  useEffect(() => {
+    if (!layout.compact) return;
+    setDraggingCardId(null);
+    dragTargetRef.current = null;
+    setDragTarget(null);
+  }, [layout.compact]);
 
   useEffect(() => {
     if (!launcher || launcher.action !== "start") return;
@@ -351,6 +388,96 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     void action([
       { type: "move-card", cardId: card.id, column, index, now: new Date().toISOString() },
     ]).catch(() => undefined);
+  };
+
+  const setCurrentDragTarget = (target: DragTarget | null) => {
+    dragTargetRef.current = target;
+    setDragTarget((current) =>
+      current?.column === target?.column && current?.index === target?.index ? current : target,
+    );
+  };
+
+  const measureBoardViewport = () => {
+    boardViewportView.current?.measureInWindow((x, y, width, height) => {
+      boardViewport.current = { x, y, width, height };
+    });
+  };
+
+  const updateDragTarget = (card: Card, pageX: number, pageY: number): DragTarget | null => {
+    if (!board || layout.compact || !boardViewport.current) return null;
+
+    const viewport = boardViewport.current;
+    if (
+      pageX < viewport.x - 24 ||
+      pageX > viewport.x + viewport.width + 24 ||
+      pageY < viewport.y ||
+      pageY > viewport.y + viewport.height
+    ) {
+      setCurrentDragTarget(null);
+      return null;
+    }
+    const edgeSize = 56;
+    const maximumScroll = Math.max(0, boardContentWidth.current - viewport.width);
+    let nextScrollX = boardScrollX.current;
+    if (pageX < viewport.x + edgeSize) nextScrollX = Math.max(0, nextScrollX - 18);
+    else if (pageX > viewport.x + viewport.width - edgeSize) {
+      nextScrollX = Math.min(maximumScroll, nextScrollX + 18);
+    }
+    if (nextScrollX !== boardScrollX.current) {
+      boardScrollX.current = nextScrollX;
+      boardScroll.current?.scrollTo({ x: nextScrollX, animated: false });
+    }
+
+    const contentX = pageX - viewport.x + nextScrollX;
+    const contentY = pageY - viewport.y;
+    const availableColumns = BOARD_COLUMNS.flatMap((column) => {
+      const rect = columnLayouts.current.get(column);
+      return rect ? [{ column, rect }] : [];
+    });
+    if (availableColumns.length === 0) return null;
+    const destination = availableColumns.reduce((closest, candidate) => {
+      const distance = Math.abs(contentX - (candidate.rect.x + candidate.rect.width / 2));
+      const closestDistance = Math.abs(contentX - (closest.rect.x + closest.rect.width / 2));
+      return distance < closestDistance ? candidate : closest;
+    });
+    const visibleCards = cardsInColumn(boardSettings.values, board.id, destination.column)
+      .filter((candidate) => candidate.id !== card.id)
+      .filter((candidate) => boardCards.some((visible) => visible.id === candidate.id));
+    const localY = contentY - destination.rect.y;
+    const index = visibleCards.findIndex((candidate) => {
+      const rect = cardLayouts.current.get(candidate.id);
+      return rect ? localY < rect.y + rect.height / 2 : false;
+    });
+    const target = { column: destination.column, index: index < 0 ? visibleCards.length : index };
+    setCurrentDragTarget(target);
+    return target;
+  };
+
+  const finishDrag = (card: Card, pageX: number, pageY: number) => {
+    const target = updateDragTarget(card, pageX, pageY) ?? dragTargetRef.current;
+    setDraggingCardId(null);
+    setCurrentDragTarget(null);
+    if (!target || !board) return;
+
+    const allDestinationCards = cardsInColumn(boardSettings.values, board.id, target.column)
+      .filter((candidate) => candidate.id !== card.id);
+    const visibleDestinationCards = allDestinationCards.filter((candidate) =>
+      boardCards.some((visible) => visible.id === candidate.id),
+    );
+    const persistedIndex = persistedIndexForVisibleDrop(
+      allDestinationCards,
+      visibleDestinationCards,
+      target.index,
+    );
+    const normalizedCurrentIndex = cardsInColumn(boardSettings.values, board.id, card.column)
+      .findIndex((candidate) => candidate.id === card.id);
+    if (target.column === card.column && persistedIndex === normalizedCurrentIndex) return;
+    moveCard(card, target.column, persistedIndex);
+  };
+
+  const cancelDrag = () => {
+    setDraggingCardId(null);
+    setCurrentDragTarget(null);
   };
 
   const deleteCard = (cardId: string) => {
@@ -829,43 +956,73 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       ) : null}
 
       {board ? (
-        <ScrollView
-          horizontal={!layout.compact}
-          contentContainerStyle={styles.board}
-          showsHorizontalScrollIndicator={!layout.compact}
-        >
-          {BOARD_COLUMNS.map((column) => {
-            const allCards = cardsInColumn(boardSettings.values, board.id, column);
-            const cards = allCards.filter((card) =>
-              boardCards.some((candidate) => candidate.id === card.id),
-            );
-            return (
-              <BoardColumnView
-                key={column}
-                agents={directory.agents}
-                cards={cards}
-                column={column}
-                columnTone={COLUMN_TONES[column]}
-                onViewDetails={(card) => {
-                  setConfirmDeleteCardId(null);
-                  setEditor(null);
-                  closeLauncher();
-                  setSelectedCardId(card.id);
-                }}
-                runs={boardSettings.values.runs}
-                statusPalette={{
-                  accent: theme.colors.accent,
-                  danger: theme.colors.statusDanger,
-                  muted: theme.colors.foregroundMuted,
-                  success: theme.colors.statusSuccess,
-                  warning: theme.colors.statusWarning,
-                }}
-                statusTextColor={theme.colors.accentForeground}
-                styles={styles}
-              />
-            );
-          })}
-        </ScrollView>
+        <View ref={boardViewportView} onLayout={measureBoardViewport} style={styles.boardViewport}>
+          <ScrollView
+            ref={boardScroll}
+            horizontal={!layout.compact}
+            contentContainerStyle={styles.board}
+            onContentSizeChange={(width) => {
+              boardContentWidth.current = width;
+            }}
+            onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+              boardScrollX.current = event.nativeEvent.contentOffset.x;
+            }}
+            scrollEnabled={!draggingCardId}
+            scrollEventThrottle={16}
+            showsHorizontalScrollIndicator={!layout.compact}
+          >
+            {BOARD_COLUMNS.map((column) => {
+              const allCards = cardsInColumn(boardSettings.values, board.id, column);
+              const cards = allCards.filter((card) =>
+                boardCards.some((candidate) => candidate.id === card.id),
+              );
+              return (
+                <BoardColumnView
+                  key={column}
+                  agents={directory.agents}
+                  cards={cards}
+                  column={column}
+                  columnTone={COLUMN_TONES[column]}
+                  dragEnabled={!layout.compact}
+                  draggingCardId={draggingCardId}
+                  dropIndex={dragTarget?.column === column ? dragTarget.index : null}
+                  onCardLayout={(cardId, cardColumn, event: LayoutChangeEvent) => {
+                    if (cardColumn !== column) return;
+                    cardLayouts.current.set(cardId, event.nativeEvent.layout);
+                  }}
+                  onColumnLayout={(measuredColumn, event: LayoutChangeEvent) => {
+                    columnLayouts.current.set(measuredColumn, event.nativeEvent.layout);
+                    measureBoardViewport();
+                  }}
+                  onDragCancel={cancelDrag}
+                  onDragEnd={finishDrag}
+                  onDragMove={updateDragTarget}
+                  onDragStart={(card, pageX, pageY) => {
+                    setDraggingCardId(card.id);
+                    measureBoardViewport();
+                    updateDragTarget(card, pageX, pageY);
+                  }}
+                  onViewDetails={(card) => {
+                    setConfirmDeleteCardId(null);
+                    setEditor(null);
+                    closeLauncher();
+                    setSelectedCardId(card.id);
+                  }}
+                  runs={boardSettings.values.runs}
+                  statusPalette={{
+                    accent: theme.colors.accent,
+                    danger: theme.colors.statusDanger,
+                    muted: theme.colors.foregroundMuted,
+                    success: theme.colors.statusSuccess,
+                    warning: theme.colors.statusWarning,
+                  }}
+                  statusTextColor={theme.colors.accentForeground}
+                  styles={styles}
+                />
+              );
+            })}
+          </ScrollView>
+        </View>
       ) : selectedProjectId ? (
         <Text style={styles.muted}>Creating this project's board…</Text>
       ) : null}

@@ -37,10 +37,10 @@ A card owns workflow state. A run owns execution state. Completing an agent turn
 | Execution | User starts a profiled agent or attaches an existing unlinked project agent |
 | Workspace | User selects an existing workspace or creates a Git worktree with optional base ref and branch name |
 | Agent updates | Live status badges, complete run history, and reconnect reconciliation |
-| Card movement | Explicit controls with accessibility labels |
+| Card movement | Drag and drop on wide layouts, with explicit accessible controls retained in card details |
 | Agent launch | Ready, In Progress, and In Review cards; Backlog and Done move to Ready first |
 | Persistence | Paseo host-scoped settings documents |
-| Deferred | Schedules, cross-host sync, collaboration, drag and drop |
+| Deferred | Schedules, cross-host sync, collaboration |
 
 ## Architecture
 
@@ -70,7 +70,7 @@ The compatibility target is Paseo `>=0.10.2`. Paseo 0.10.2 exposes `addSurface` 
 ## Included in 0.1
 
 - Versioned board and display settings.
-- Scan-first card summaries with editing, movement, ordering, agent actions, and guarded deletion in card details.
+- Scan-first card summaries with wide-layout drag and drop; editing, explicit movement, ordering, agent actions, and guarded deletion remain available in card details.
 - Wide and compact React Native layouts using Paseo theme tokens.
 - JSON backup copy and validated, confirmed import.
 - Configured Paseo agent profiles instead of separate provider and model controls.
@@ -85,7 +85,6 @@ The compatibility target is Paseo `>=0.10.2`. Paseo 0.10.2 exposes `addSurface` 
 
 ## Deferred
 
-- Drag and drop, after keyboard, mobile, and accessibility behavior is defined.
 - Cross-host synchronization and shared multi-user boards.
 - **Schedules**
   - Treat schedules as card templates.

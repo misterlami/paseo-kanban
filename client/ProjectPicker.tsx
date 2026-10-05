@@ -4,10 +4,12 @@ import type { BoardStyles } from "./useBoardStyles";
 import type { ProjectSummary } from "./usePaseoDirectory";
 
 interface ProjectPickerProps {
+  allProjects: boolean;
   filter: string;
   foregroundMuted: string;
   onFilterChange: (value: string) => void;
   onSelect: (projectId: string) => void;
+  onSelectAll: () => void;
   onToggle: () => void;
   open: boolean;
   projects: readonly ProjectSummary[];
@@ -16,10 +18,12 @@ interface ProjectPickerProps {
 }
 
 export function ProjectPicker({
+  allProjects,
   filter,
   foregroundMuted,
   onFilterChange,
   onSelect,
+  onSelectAll,
   onToggle,
   open,
   projects,
@@ -55,7 +59,7 @@ export function ProjectPicker({
         >
           <Text style={styles.projectButtonLabel}>PROJECT</Text>
           <Text numberOfLines={1} style={styles.projectButtonText}>
-            {selectedProject?.projectDisplayName ?? "Select a project"}
+            {allProjects ? "All projects" : selectedProject?.projectDisplayName ?? "Select a project"}
           </Text>
           <Text style={styles.projectButtonChevron}>{open ? "▲" : "▼"}</Text>
         </Pressable>
@@ -73,8 +77,16 @@ export function ProjectPicker({
             style={styles.input}
           />
           <ScrollView style={styles.projectList} contentContainerStyle={styles.projectOptions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: allProjects }}
+              onPress={onSelectAll}
+              style={[styles.projectOption, allProjects && styles.selectedProjectOption]}
+            >
+              <Text style={styles.projectOptionText}>All projects</Text>
+            </Pressable>
             {visibleProjects.map((project) => {
-              const selected = project.projectId === selectedProjectId;
+              const selected = !allProjects && project.projectId === selectedProjectId;
               return (
                 <Pressable
                   key={project.projectId}

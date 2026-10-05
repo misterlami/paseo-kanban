@@ -2,6 +2,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { AgentCardPanel } from "./client/AgentCardPanel";
 import { BoardSurface } from "./client/BoardSurface";
 import { registerKanbanComposerPills } from "./client/registerCardIntegrations";
+import { registerScheduledDispatcher } from "./client/registerScheduledDispatcher";
 import { kanbanCardsAttachmentSource } from "./shared/cardAttachments";
 
 export default function contribute(client: PluginClientContext) {
@@ -42,8 +43,10 @@ export default function contribute(client: PluginClientContext) {
   });
   const removeAttachmentSource = client.addAttachmentSource(kanbanCardsAttachmentSource);
   const removeComposerPills = registerKanbanComposerPills(client);
+  const removeScheduledDispatcher = registerScheduledDispatcher(client);
 
   return () => {
+    removeScheduledDispatcher();
     removeComposerPills();
     removeAttachmentSource();
     removeAgentCommand();

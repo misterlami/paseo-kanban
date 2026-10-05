@@ -40,8 +40,8 @@ const PROFILE_COLORS: Record<string, string> = {
   rose: "#f43f5e",
 };
 
-function profileColor(color: string | undefined): string {
-  if (!color) return "#64748b";
+function profileColor(color: string | undefined, fallback: string): string {
+  if (!color) return fallback;
   return PROFILE_COLORS[color.toLowerCase()] ?? color;
 }
 
@@ -469,6 +469,7 @@ interface AgentLauncherPanelProps {
   onChange: (launcher: AgentLauncherState) => void;
   onStart: () => void;
   placeholderColor: string;
+  profileFallbackColor: string;
   profilesSupported: boolean | null;
   showAttachMoveOption: boolean;
   working: boolean;
@@ -485,6 +486,7 @@ export function AgentLauncherPanel({
   onChange,
   onStart,
   placeholderColor,
+  profileFallbackColor,
   profilesSupported,
   showAttachMoveOption,
   working,
@@ -495,8 +497,8 @@ export function AgentLauncherPanel({
     launcher.action === "attach"
       ? Boolean(launcher.attachAgentId)
       : Boolean(
-          launcher.agentProfileId &&
-            (launcher.workspaceMode === "new" ? canCreateWorktree : launcher.workspaceId),
+          (launcher.agentProfileId || agentProfiles.length === 0) &&
+          (launcher.workspaceMode === "new" ? canCreateWorktree : launcher.workspaceId),
         );
 
   return (
@@ -528,7 +530,7 @@ export function AgentLauncherPanel({
             <View accessibilityLabel="Agent profiles" accessibilityRole="radiogroup" style={styles.optionGrid}>
               {agentProfiles.map((profile) => {
                 const selected = profile.id === launcher.agentProfileId;
-                const color = profileColor(profile.color);
+                const color = profileColor(profile.color, profileFallbackColor);
                 return (
                   <Pressable
                     key={profile.id}
@@ -553,9 +555,9 @@ export function AgentLauncherPanel({
               })}
             </View>
             {profilesSupported === false ? (
-              <Text style={styles.warning}>This Paseo host does not support agent profiles.</Text>
+              <Text style={styles.warning}>Agent profiles are unavailable. Paseo will choose an available provider.</Text>
             ) : agentProfiles.length === 0 ? (
-              <Text style={styles.warning}>No agent profiles are configured on this host.</Text>
+              <Text style={styles.muted}>Paseo will choose the default model from the first available provider.</Text>
             ) : null}
           </View>
 

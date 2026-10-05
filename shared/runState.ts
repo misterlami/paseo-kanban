@@ -13,16 +13,16 @@ export interface RunStatusPresentation {
 }
 
 export function runStatus(agent: AgentRunState | null | undefined): RunStatusPresentation {
-  if (!agent) return { label: "Agent missing", tone: "warning" };
+  if (!agent) return { label: "Unknown", tone: "warning" };
   if (agent.archivedAt) return { label: "Archived", tone: "muted" };
   if (agent.attentionReason === "permission") {
-    return { label: "Permission required", motion: "pulse", tone: "warning" };
+    return { label: "Needs input", motion: "pulse", tone: "warning" };
   }
   if (agent.attentionReason === "error" || agent.status === "error") {
-    return { label: "Error", tone: "danger" };
+    return { label: "Failed", tone: "danger" };
   }
   if (agent.attentionReason === "finished") {
-    return { label: "Review suggested", tone: "success" };
+    return { label: "Needs review", tone: "success" };
   }
   if (agent.status === "initializing") {
     return { label: "Initializing", motion: "pulse", tone: "accent" };

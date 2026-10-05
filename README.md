@@ -78,7 +78,7 @@ The compatibility target is Paseo `>=0.10.2`. Paseo 0.10.2 exposes `addSurface` 
 - Configured Paseo agent profiles are preferred; when none exist, Paseo's first available default provider/model is used.
 - Explicit existing-workspace selection or new Git worktree creation, including optional workspace title, base ref, and branch name.
 - Existing unlinked project agents can be attached to a card without replacing their agent or workspace identity.
-- Durable run records with profile, workspace, branch, timestamps, live status, navigation, and label-based reconciliation.
+- Durable run records with profile, workspace, branch, scheduled occurrence, timestamps, live status, navigation, and label-based reconciliation.
 - Column-aware actions: Start agent in Ready; Open agent and New attempt in In Progress; Request changes and Mark Done in In Review.
 - Agent workspace panel with linked-card context, run history, and explicit review actions.
 - Composer pills that open the linked card panel and a searchable card attachment source.
@@ -94,7 +94,8 @@ After the configured local time, the dispatcher selects one eligible Ready card 
 on the selected host. It acquires an atomic lease for the local date and claims the card with the
 board document's revision before creating a worktree or agent. It then saves the run and moves the
 card to In Progress. The concurrency cap limits active Kanban agents. Agent labels recover the run
-link if the final settings write is interrupted.
+link and scheduled occurrence if the final settings write is interrupted. A periodic directory scan
+retries reconciliation after transient startup or reconnect failures.
 
 Paseo's supported plugin API does not expose daemon schedule callbacks or daemon-side settings
 writes. The dispatcher therefore runs in the plugin's long-lived client contribution and requires
@@ -111,8 +112,8 @@ inspect the rendered board. Automation is disabled until configured from the Kan
 
 ## Verification status
 
-- `npm run check` passes with 24 tests covering schemas, migrations, card operations, ordering, dispatch claims, daily leases, reconciliation, attachments, and run-state presentation.
-- Board settings migration through version 4 has been exercised against the locally loaded plugin without losing existing data.
+- `npm run check` passes with 31 tests covering schemas, migrations, card operations, ordering, dispatch claims, daily leases, reconciliation, attachments, and run-state presentation.
+- Board settings migration through version 5 has been exercised against the locally loaded plugin without losing existing data.
 - Wide and compact layouts, light and dark themes, and the complete interactive error-state matrix still require manual visual verification for version 0.2.
 
 ## Development

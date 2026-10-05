@@ -13,11 +13,14 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import { materializeAgentProfile, type AgentProfile } from "../shared/agentProfiles";
+import type { AgentProfile } from "../shared/agentProfiles";
+import { agentPrompt } from "../shared/automation";
 import {
   AGENT_LABELS,
+  AutomationSettingsSchema,
   BOARD_COLUMNS,
   BoardDataSchema,
+  type AutomationSettings,
   type BoardColumn,
   type BoardData,
   type Card,
@@ -25,15 +28,19 @@ import {
   type Run,
 } from "../shared/model";
 import {
-  applyBoardOperations,
   boardForProject,
   cardsInColumn,
   createId,
+  nextReadyCard,
   persistedIndexForVisibleDrop,
   type BoardOperation,
 } from "../shared/operations";
-import { canContinueAgent } from "../shared/runState";
-import { boardDataSettings, displaySettings } from "../shared/settings";
+import { persistBoardOperations } from "../shared/persistence";
+import { canContinueAgent, isActiveAgent } from "../shared/runState";
+import { automationSettings, boardDataSettings, displaySettings } from "../shared/settings";
+import { AllProjectsPanel } from "./AllProjectsPanel";
+import { resolveAgentExecution } from "./agentExecution";
+import { AutomationPanel } from "./AutomationPanel";
 import { BoardColumn as BoardColumnView } from "./BoardColumn";
 import {
   AgentLauncherPanel,
@@ -50,13 +57,8 @@ import { usePaseoDirectory, type WorkspaceSummary } from "./usePaseoDirectory";
 
 const boardRpc = settingsRpc(boardDataSettings.id);
 const displayRpc = settingsRpc(displaySettings.id);
-const COLUMN_TONES = {
-  backlog: "#64748b",
-  todo: "#d97706",
-  in_progress: "#16a34a",
-  in_review: "#7c3aed",
-  done: "#0891b2",
-} satisfies Record<BoardColumn, string>;
+const automationRpc = settingsRpc(automationSettings.id);
+const CLAIM_LIFETIME_MS = 30 * 60 * 1_000;
 type NullableString = string | null;
 interface LayoutRect {
   height: number;
@@ -69,14 +71,6 @@ interface DragTarget {
   index: number;
 }
 
-function defaultWorkspaceId(workspaces: readonly WorkspaceSummary[], projectId: string | null): string | null {
-  const available = workspaces.filter((workspace) => workspace.projectId === projectId);
-  const main = available.find((workspace) =>
-    [workspace.title, workspace.name].some((name) => /^main(?: branch)?$/i.test(name?.trim() ?? "")),
-  );
-  return (main ?? available[0])?.id ?? null;
-}
-
 function withLauncherDefaults(
   launcher: AgentLauncherState,
   agentProfiles: readonly AgentProfile[],
@@ -86,10 +80,13 @@ function withLauncherDefaults(
   const agentProfileId = agentProfiles.some((profile) => profile.id === launcher.agentProfileId)
     ? launcher.agentProfileId
     : agentProfiles[0]?.id ?? null;
-  const workspaceId = launcher.workspaceMode === "existing" &&
-      !workspaces.some((workspace) => workspace.projectId === projectId && workspace.id === launcher.workspaceId)
-    ? defaultWorkspaceId(workspaces, projectId)
-    : launcher.workspaceId;
+  const workspaceId =
+    launcher.workspaceMode === "existing" &&
+    !workspaces.some(
+      (workspace) => workspace.projectId === projectId && workspace.id === launcher.workspaceId,
+    )
+      ? null
+      : launcher.workspaceId;
   return agentProfileId === launcher.agentProfileId && workspaceId === launcher.workspaceId
     ? launcher
     : { ...launcher, agentProfileId, workspaceId };
@@ -100,8 +97,12 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const toast = useToast();
   const boardSettings = useSettings(boardDataSettings);
   const displayState = useSettings(displaySettings);
+  const automationState = useSettings(automationSettings);
   const readBoard = useRpc(boardRpc.read);
+  const writeBoard = useRpc(boardRpc.write);
   const readDisplay = useRpc(displayRpc.read);
+  const readAutomation = useRpc(automationRpc.read);
+  const [view, setView] = useState<"project" | "all">("project");
   const [selectedProjectId, setSelectedProjectId] = useState<NullableString>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState("");
@@ -115,9 +116,11 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const [confirmDeleteCardId, setConfirmDeleteCardId] = useState<NullableString>(null);
   const [importText, setImportText] = useState<NullableString>(null);
   const [importValidated, setImportValidated] = useState<BoardData | null>(null);
+  const [automationDraft, setAutomationDraft] = useState<AutomationSettings | null>(null);
+  const [savingAutomation, setSavingAutomation] = useState(false);
   const cardSaveInFlight = useRef(false);
   const ensuringProject = useRef<NullableString>(null);
-  const displayInitialized = useRef(false);
+  const displayInitializedHostId = useRef<string | null>(null);
   const reconciling = useRef(false);
   const boardScroll = useRef<ScrollView | null>(null);
   const boardViewportView = useRef<View | null>(null);
@@ -130,12 +133,24 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const [draggingCardId, setDraggingCardId] = useState<NullableString>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget | null>(null);
   const styles = useBoardStyles(theme, layout.compact);
+  const columnTones = {
+    backlog: theme.colors.foregroundMuted,
+    todo: theme.colors.statusWarning,
+    in_progress: theme.colors.accent,
+    in_review: theme.colors.statusWarning,
+    done: theme.colors.statusSuccess,
+  } satisfies Record<BoardColumn, string>;
 
   const currentBoard =
     boardSettings.status === "ready" && selectedProjectId
       ? boardForProject(boardSettings.values, selectedProjectId)
       : undefined;
-  const directory = usePaseoDirectory(selectedProjectId, currentBoard?.id ?? null);
+  const directory = usePaseoDirectory(
+    view === "all" ? null : selectedProjectId,
+    view === "all" ? null : currentBoard?.id ?? null,
+    view === "all",
+    host.id,
+  );
 
   useEffect(() => {
     if (!layout.compact) return;
@@ -155,32 +170,24 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   }, [directory.agentProfiles, directory.workspaces, launcher, selectedProjectId]);
 
   const persistOperations = useCallback(
-    async (operations: readonly BoardOperation[]) => {
-      if (boardSettings.status !== "ready") throw new Error("Board data is not ready");
-      const next = BoardDataSchema.parse(applyBoardOperations(boardSettings.values, operations));
-      if (await boardSettings.save(next, boardSettings.revision)) return;
-      const fresh = await readBoard({});
-      if (fresh.status !== "ready") throw new Error(fresh.error);
-      const values = BoardDataSchema.parse(fresh.values);
-      const replayed = BoardDataSchema.parse(applyBoardOperations(values, operations));
-      if (!(await boardSettings.save(replayed, fresh.revision))) {
-        throw new Error("Board changed again while saving. Retry the action.");
-      }
-    },
-    [boardSettings, readBoard],
+    (operations: readonly BoardOperation[]) =>
+      persistBoardOperations(
+        {
+          read: () => readBoard({}),
+          write: (revision, values) => writeBoard({ revision, values }),
+        },
+        operations,
+      ),
+    [readBoard, writeBoard],
   );
 
   const replaceBoardData = useCallback(
     async (values: BoardData) => {
       if (boardSettings.status !== "ready") throw new Error("Board data is not ready");
       if (await boardSettings.save(values, boardSettings.revision)) return;
-      const fresh = await readBoard({});
-      if (fresh.status !== "ready") throw new Error(fresh.error);
-      if (!(await boardSettings.save(values, fresh.revision))) {
-        throw new Error("Board changed again while importing. Retry the import.");
-      }
+      throw new Error("Board changed while the import was pending. Validate the backup again.");
     },
-    [boardSettings, readBoard],
+    [boardSettings],
   );
 
   const persistDisplay = useCallback(
@@ -198,25 +205,54 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     [displayState, readDisplay],
   );
 
+  const persistAutomation = useCallback(
+    async (values: AutomationSettings) => {
+      if (automationState.status !== "ready") throw new Error("Automation settings are not ready");
+      const next = AutomationSettingsSchema.parse(values);
+      if (await automationState.save(next, automationState.revision)) return;
+      const fresh = await readAutomation({});
+      if (fresh.status !== "ready") throw new Error(fresh.error);
+      const current = AutomationSettingsSchema.parse(fresh.values);
+      const replayed = AutomationSettingsSchema.parse({
+        ...current,
+        enabled: next.enabled,
+        dailyTime: next.dailyTime,
+        timezone: next.timezone,
+        agentProfileId: next.agentProfileId,
+        baseRef: next.baseRef,
+        maxConcurrent: next.maxConcurrent,
+      });
+      if (!(await automationState.save(replayed, fresh.revision))) {
+        throw new Error("Automation settings changed again while saving.");
+      }
+    },
+    [automationState, readAutomation],
+  );
+
   useEffect(() => {
-    if (displayState.status !== "ready" || directory.projects.length === 0) return;
-    if (displayInitialized.current) return;
-    displayInitialized.current = true;
+    if (
+      displayState.status !== "ready" ||
+      directory.projects.length === 0 ||
+      directory.loadedHostId !== host.id
+    ) return;
+    if (displayInitializedHostId.current === host.id) return;
+    displayInitializedHostId.current = host.id;
     const preferred = displayState.values.selectedProjectId;
     const selected = directory.projects.some((project) => project.projectId === preferred)
       ? preferred
       : directory.projects[0]!.projectId;
-    if (!selectedProjectId) setSelectedProjectId(selected);
-    setFilter((current) => (current ? current : displayState.values.filter));
+    setSelectedProjectId(selected);
+    setFilter(displayState.values.filter);
+    setView(displayState.values.view);
     if (preferred !== selected) {
       void persistDisplay((values) => ({ ...values, selectedProjectId: selected })).catch((cause) =>
         toast.error(errorMessage(cause)),
       );
     }
-  }, [directory.projects, displayState, persistDisplay, selectedProjectId, toast]);
+  }, [directory.loadedHostId, directory.projects, displayState, host.id, persistDisplay, toast]);
 
   useEffect(() => {
-    if (boardSettings.status !== "ready" || !selectedProjectId || currentBoard) return;
+    if (view === "all" || boardSettings.status !== "ready" || !selectedProjectId || currentBoard) return;
     if (ensuringProject.current === selectedProjectId) return;
     const project = directory.projects.find((candidate) => candidate.projectId === selectedProjectId);
     if (!project) return;
@@ -234,7 +270,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       .finally(() => {
         ensuringProject.current = null;
       });
-  }, [boardSettings.status, currentBoard, directory.projects, persistOperations, selectedProjectId, toast]);
+  }, [boardSettings.status, currentBoard, directory.projects, persistOperations, selectedProjectId, toast, view]);
 
   useEffect(() => {
     if (boardSettings.status !== "ready" || directory.agents.length === 0) return;
@@ -284,7 +320,11 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     [persistOperations, toast],
   );
 
-  if (boardSettings.status === "loading" || displayState.status === "loading") {
+  if (
+    boardSettings.status === "loading" ||
+    displayState.status === "loading" ||
+    automationState.status === "loading"
+  ) {
     return (
       <View style={styles.screen}>
         <Text style={styles.text}>Loading Kanban data…</Text>
@@ -292,9 +332,14 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     );
   }
 
-  if (boardSettings.status === "error" || displayState.status === "error") {
+  if (
+    boardSettings.status === "error" ||
+    displayState.status === "error" ||
+    automationState.status === "error"
+  ) {
     const error = boardSettings.status === "error" ? boardSettings.error :
-      displayState.status === "error" ? displayState.error : "Settings failed to load";
+      displayState.status === "error" ? displayState.error :
+      automationState.status === "error" ? automationState.error : "Settings failed to load";
     return (
       <View style={styles.screen}>
         <Text style={styles.error}>{error}</Text>
@@ -302,9 +347,14 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     );
   }
 
-  if (boardSettings.status === "invalid" || displayState.status === "invalid") {
+  if (
+    boardSettings.status === "invalid" ||
+    displayState.status === "invalid" ||
+    automationState.status === "invalid"
+  ) {
     const error = boardSettings.status === "invalid" ? boardSettings.error :
-      displayState.status === "invalid" ? displayState.error : "Settings are invalid";
+      displayState.status === "invalid" ? displayState.error :
+      automationState.status === "invalid" ? automationState.error : "Settings are invalid";
     return (
       <View style={styles.screen}>
         <Text style={styles.heading}>Kanban data needs attention</Text>
@@ -329,14 +379,22 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     (workspace) => workspace.projectId === selectedProjectId,
   );
   const linkedAgentIds = new Set(boardSettings.values.runs.map((run) => run.agentId));
+  const externallyLinkedCardIds = new Set(
+    directory.agents.flatMap((agent) => {
+      const cardId = agent.labels[AGENT_LABELS.cardId];
+      return cardId && !linkedAgentIds.has(agent.id) ? [cardId] : [];
+    }),
+  );
   const attachableAgents = directory.agents.filter(
     (agent) =>
       !agent.archivedAt &&
       !linkedAgentIds.has(agent.id) &&
+      !agent.labels[AGENT_LABELS.cardId] &&
       Boolean(agent.workspaceId) &&
       projectWorkspaces.some((workspace) => workspace.id === agent.workspaceId),
   );
   const selectProject = (projectId: string) => {
+    setView("project");
     setSelectedProjectId(projectId);
     setProjectPickerOpen(false);
     setProjectFilter("");
@@ -344,7 +402,19 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     setSelectedCardId(null);
     setRunCardId(null);
     setLauncher(null);
-    void persistDisplay((values) => ({ ...values, selectedProjectId: projectId })).catch((cause) =>
+    void persistDisplay((values) => ({ ...values, selectedProjectId: projectId, view: "project" })).catch((cause) =>
+      toast.error(errorMessage(cause)),
+    );
+  };
+
+  const selectAllProjects = () => {
+    setView("all");
+    setProjectPickerOpen(false);
+    setProjectFilter("");
+    setEditor(null);
+    setSelectedCardId(null);
+    closeLauncher();
+    void persistDisplay((values) => ({ ...values, view: "all" })).catch((cause) =>
       toast.error(errorMessage(cause)),
     );
   };
@@ -485,7 +555,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       setConfirmDeleteCardId(cardId);
       return;
     }
-    void action([{ type: "delete-card", cardId }])
+    void action([{ type: "delete-card", cardId, now: new Date().toISOString() }])
       .then(() => {
         setConfirmDeleteCardId(null);
         setSelectedCardId((selected) => selected === cardId ? null : selected);
@@ -493,17 +563,17 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       .catch(() => undefined);
   };
 
-  const openLauncher = (card: Card) => {
+  const openLauncher = (card: Card, preferNewWorktree = false) => {
     setEditor(null);
     setSelectedCardId(null);
     setRunCardId(card.id);
     setLauncher(withLauncherDefaults({
       action: "start",
       agentProfileId: null,
-      workspaceMode: "existing",
+      workspaceMode: preferNewWorktree ? "new" : "existing",
       workspaceId: null,
       workspaceTitle: `${card.key}: ${card.title}`,
-      baseRef: "",
+      baseRef: preferNewWorktree ? "origin/main" : "",
       branchName: "",
       attachAgentId: null,
       moveAttachedCardToInProgress: true,
@@ -514,6 +584,21 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
   const closeLauncher = () => {
     setRunCardId(null);
     setLauncher(null);
+  };
+
+  const openNextReadyCard = () => {
+    if (!board) return;
+    const card = nextReadyCard(boardSettings.values, {
+      activeAgentIds: new Set(directory.agents.filter(isActiveAgent).map((agent) => agent.id)),
+      eligibleBoardIds: new Set([board.id]),
+      externallyLinkedCardIds,
+      now: new Date().toISOString(),
+    });
+    if (!card) {
+      toast.show("No eligible Ready card is available in this project.", { variant: "warning" });
+      return;
+    }
+    openLauncher(card, true);
   };
 
   const runAgent = async () => {
@@ -528,7 +613,28 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
     setStartingAgent(true);
     const runId = createId("run");
     const now = new Date().toISOString();
+    let agentCreated = false;
     try {
+      if (
+        boardSettings.values.runs
+          .filter((run) => run.cardId === card.id)
+          .some((run) => isActiveAgent(directory.agents.find((agent) => agent.id === run.agentId)))
+      ) {
+        throw new Error("This card already has an active agent.");
+      }
+      if (externallyLinkedCardIds.has(card.id)) {
+        throw new Error("This card has an agent link pending reconciliation.");
+      }
+      await persistOperations([
+        {
+          type: "claim-card",
+          claimId: runId,
+          cardId: card.id,
+          source: "manual",
+          now,
+          expiresAt: new Date(Date.parse(now) + CLAIM_LIFETIME_MS).toISOString(),
+        },
+      ]);
       if (launcher.action === "attach") {
         const agent = directory.agents.find((candidate) => candidate.id === launcher.attachAgentId);
         if (!agent || agent.archivedAt) throw new Error("The selected agent is no longer available.");
@@ -540,37 +646,32 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           throw new Error("The selected agent is already attached to a card.");
         }
         const workspace = projectWorkspaces.find((candidate) => candidate.id === agent.workspaceId);
-        const operations: BoardOperation[] = [
-          {
-            type: "add-run",
-            run: {
-              id: runId,
-              cardId: card.id,
-              agentId: agent.id,
-              workspaceId: agent.workspaceId,
-              provider: agent.provider,
-              agentProfileId: null,
-              agentProfileName: null,
-              workspaceName: workspace?.title ?? workspace?.name ?? null,
-              branchName: null,
-              createdAt: now,
-              updatedAt: now,
-            },
-          },
-        ];
+        const run: Run = {
+          id: runId,
+          cardId: card.id,
+          agentId: agent.id,
+          workspaceId: agent.workspaceId,
+          provider: agent.provider,
+          agentProfileId: null,
+          agentProfileName: null,
+          workspaceName: workspace?.title ?? workspace?.name ?? null,
+          branchName: null,
+          scheduledLocalDate: null,
+          createdAt: now,
+          updatedAt: now,
+        };
         const moveAttachedCard =
           launcher.moveAttachedCardToInProgress &&
           (card.column === "todo" || card.column === "in_review");
-        if (moveAttachedCard) {
-          operations.push({
-            type: "move-card",
-            cardId: card.id,
-            column: "in_progress",
-            index: cardsInColumn(boardSettings.values, board.id, "in_progress").length,
+        await persistOperations([
+          {
+            type: "complete-dispatch",
+            claimId: runId,
+            run,
+            moveToInProgress: moveAttachedCard,
             now,
-          });
-        }
-        await persistOperations(operations);
+          },
+        ]);
         toast.show(
           moveAttachedCard ? "Agent attached and card moved to In Progress" : "Agent attached",
           { variant: "success" },
@@ -580,8 +681,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       }
 
       const profiles = await directory.refreshAgentProfiles();
-      const profile = profiles.find((candidate) => candidate.id === launcher.agentProfileId);
-      if (!profile) throw new Error("Select an available agent profile.");
+      const execution = await resolveAgentExecution(paseo, profiles, launcher.agentProfileId);
 
       let resolvedWorkspaceId = launcher.workspaceId;
       let createdWorkspaceName: string | null = null;
@@ -623,58 +723,51 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       }
 
       const agent = await paseo.workspaces.ref(resolvedWorkspaceId).agents.create({
-        config: materializeAgentProfile(profile),
+        config: execution.config,
         title: `${card.key}: ${card.title}`,
         labels: {
           [AGENT_LABELS.boardId]: board.id,
           [AGENT_LABELS.cardId]: card.id,
           [AGENT_LABELS.runId]: runId,
-          [AGENT_LABELS.agentProfileId]: profile.id,
           [AGENT_LABELS.cardKey]: card.key,
+          ...(execution.profileId ? { [AGENT_LABELS.agentProfileId]: execution.profileId } : {}),
         },
-        prompt: [
-          `Work on ${card.key}: ${card.title}.`,
-          card.description,
-          "Report the result and any remaining work when finished.",
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
+        prompt: agentPrompt(card),
       });
-      const operations: BoardOperation[] = [
+      agentCreated = true;
+      const run: Run = {
+        id: runId,
+        cardId: card.id,
+        agentId: agent.id,
+        workspaceId: resolvedWorkspaceId,
+        provider: execution.config.provider,
+        agentProfileId: execution.profileId,
+        agentProfileName: execution.profileName,
+        workspaceName:
+          createdWorkspaceName ??
+          projectWorkspaces.find((workspace) => workspace.id === resolvedWorkspaceId)?.title ??
+          projectWorkspaces.find((workspace) => workspace.id === resolvedWorkspaceId)?.name ??
+          null,
+        branchName: createdBranchName,
+        scheduledLocalDate: null,
+        createdAt: agent.current()?.createdAt ?? now,
+        updatedAt: agent.current()?.updatedAt ?? now,
+      };
+      await persistOperations([
         {
-          type: "add-run",
-          run: {
-            id: runId,
-            cardId: card.id,
-            agentId: agent.id,
-            workspaceId: resolvedWorkspaceId,
-            provider: profile.provider,
-            agentProfileId: profile.id,
-            agentProfileName: profile.name,
-            workspaceName:
-              createdWorkspaceName ??
-              projectWorkspaces.find((workspace) => workspace.id === resolvedWorkspaceId)?.title ??
-              projectWorkspaces.find((workspace) => workspace.id === resolvedWorkspaceId)?.name ??
-              null,
-            branchName: createdBranchName,
-            createdAt: agent.current()?.createdAt ?? now,
-            updatedAt: agent.current()?.updatedAt ?? now,
-          },
-        },
-      ];
-      if (card.column === "todo" || card.column === "in_review") {
-        operations.push({
-          type: "move-card",
-          cardId: card.id,
-          column: "in_progress",
-          index: cardsInColumn(boardSettings.values, board.id, "in_progress").length,
+          type: "complete-dispatch",
+          claimId: runId,
+          run,
+          moveToInProgress: card.column === "todo" || card.column === "in_review",
           now,
-        });
-      }
-      await persistOperations(operations);
+        },
+      ]);
       toast.show("Agent started", { variant: "success" });
       closeLauncher();
     } catch (cause) {
+      if (!agentCreated) {
+        await persistOperations([{ type: "release-claim", claimId: runId }]).catch(() => undefined);
+      }
       toast.error(errorMessage(cause));
     } finally {
       setStartingAgent(false);
@@ -770,17 +863,38 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       setImportValidated(null);
       toast.show("Board data imported", { variant: "success" });
     } catch (cause) {
+      setImportValidated(null);
       toast.error(errorMessage(cause));
+    }
+  };
+
+  const saveAutomation = async () => {
+    if (!automationDraft || savingAutomation) return;
+    try {
+      setSavingAutomation(true);
+      const validated = AutomationSettingsSchema.parse({
+        ...automationDraft,
+        baseRef: automationDraft.baseRef.trim(),
+      });
+      await persistAutomation(validated);
+      setAutomationDraft(null);
+      toast.show("Daily dispatcher settings saved", { variant: "success" });
+    } catch (cause) {
+      toast.error(errorMessage(cause));
+    } finally {
+      setSavingAutomation(false);
     }
   };
 
   return (
     <View style={styles.screen}>
       <ProjectPicker
+        allProjects={view === "all"}
         filter={projectFilter}
         foregroundMuted={theme.colors.foregroundMuted}
         onFilterChange={setProjectFilter}
         onSelect={selectProject}
+        onSelectAll={selectAllProjects}
         onToggle={() => {
           if (projectPickerOpen) setProjectFilter("");
           setProjectPickerOpen((open) => !open);
@@ -807,7 +921,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         />
         <Pressable
           accessibilityRole="button"
-          disabled={!board}
+          disabled={!board || view === "all"}
           onPress={() => {
             setSelectedCardId(null);
             closeLauncher();
@@ -816,6 +930,34 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           style={[styles.button, styles.primaryButton]}
         >
           <Text style={[styles.buttonText, styles.primaryButtonText]}>New card</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={!board || view === "all"}
+          onPress={openNextReadyCard}
+          style={styles.button}
+        >
+          <Text style={styles.buttonText}>Dispatch next</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            setAutomationDraft({
+              ...automationState.values,
+              timezone:
+                automationState.values.timezone ??
+                Intl.DateTimeFormat().resolvedOptions().timeZone ??
+                "UTC",
+            });
+            setEditor(null);
+            setSelectedCardId(null);
+            closeLauncher();
+          }}
+          style={[styles.button, automationState.values.enabled && styles.selectedChip]}
+        >
+          <Text style={[styles.buttonText, automationState.values.enabled && styles.selectedChipText]}>
+            Daily dispatch {automationState.values.enabled ? "on" : "off"}
+          </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -843,6 +985,19 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
       {directory.error ? <Text style={styles.error}>{directory.error}</Text> : null}
       {directory.projects.length === 0 ? (
         <Text style={styles.warning}>No Paseo projects are available on {host.label}.</Text>
+      ) : null}
+
+      {automationDraft ? (
+        <AutomationPanel
+          agentProfiles={directory.agentProfiles}
+          draft={automationDraft}
+          onCancel={() => setAutomationDraft(null)}
+          onChange={setAutomationDraft}
+          onSave={() => void saveAutomation()}
+          placeholderColor={theme.colors.foregroundMuted}
+          saving={savingAutomation}
+          styles={styles}
+        />
       ) : null}
 
       {editor ? (
@@ -925,6 +1080,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
           onChange={setLauncher}
           onStart={() => void runAgent()}
           placeholderColor={theme.colors.foregroundMuted}
+          profileFallbackColor={theme.colors.foregroundMuted}
           profilesSupported={directory.profilesSupported}
           showAttachMoveOption={(() => {
             const card = boardSettings.values.cards.find((candidate) => candidate.id === runCardId);
@@ -955,7 +1111,27 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
         />
       ) : null}
 
-      {board ? (
+      {view === "all" ? (
+        <AllProjectsPanel
+          agents={directory.agents}
+          data={boardSettings.values}
+          filter={filter}
+          onOpenProject={(projectId, cardId) => {
+            selectProject(projectId);
+            setSelectedCardId(cardId);
+          }}
+          projects={directory.projects}
+          statusPalette={{
+            accent: theme.colors.accent,
+            danger: theme.colors.statusDanger,
+            muted: theme.colors.foregroundMuted,
+            success: theme.colors.statusSuccess,
+            warning: theme.colors.statusWarning,
+          }}
+          statusTextColor={theme.colors.accentForeground}
+          styles={styles}
+        />
+      ) : board ? (
         <View ref={boardViewportView} onLayout={measureBoardViewport} style={styles.boardViewport}>
           <ScrollView
             ref={boardScroll}
@@ -982,7 +1158,7 @@ export function BoardSurface({ theme, layout, host, navigation }: PluginSurfaceP
                   agents={directory.agents}
                   cards={cards}
                   column={column}
-                  columnTone={COLUMN_TONES[column]}
+                  columnTone={columnTones[column]}
                   dragEnabled={!layout.compact}
                   draggingCardId={draggingCardId}
                   dropIndex={dragTarget?.column === column ? dragTarget.index : null}

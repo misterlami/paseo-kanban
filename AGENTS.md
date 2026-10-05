@@ -65,12 +65,14 @@ The current public [plugin reference](https://paseo.sh/docs/plugins/reference) a
 - Guard settings writes with revisions. On conflict, reload and replay the user's small operation. Keep full-document import behind explicit validation and confirmation.
 - Store dispatch claims in board data. Claims must expire, prevent duplicate dispatch, and block conflicting card movement or deletion while active.
 - Use an atomic per-local-date lease for daily dispatch so connected clients cannot run the same daily invocation twice.
+- Persist the scheduled local date on the run and agent labels so reconciliation can suppress duplicate occurrences after interrupted writes.
 
 ## Agent integration
 
 - Create agents only from an explicit manual action or an enabled daily dispatcher invocation.
 - Persist the returned agent and workspace IDs in a run record.
 - Reconcile orphaned runs or unlinked agents by labels after reconnect or plugin reload.
+- Retry full-directory reconciliation periodically so transient startup and reconnect failures do not require opening the board.
 - Recover interrupted dispatch persistence from board, card, and run labels, clear the matching claim, and move a recovered Ready card to In Progress.
 - Present Initializing, Running, Idle, Needs input, Failed, Needs review, Closed, Archived, and Unknown states as badges.
 - Prefer the selected configured agent profile, then the first configured profile, then the first available provider's default or selectable model.

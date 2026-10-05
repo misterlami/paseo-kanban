@@ -49,7 +49,12 @@ function upsertAgent(current: AgentSummary[], next: AgentSummary): AgentSummary[
   return copy;
 }
 
-export function usePaseoDirectory(projectId: string | null, boardId: string | null) {
+export function usePaseoDirectory(
+  projectId: string | null,
+  boardId: string | null,
+  allProjects = false,
+  hostId?: string,
+) {
   const paseo = usePaseo();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
@@ -58,6 +63,7 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [workspaceRefresh, setWorkspaceRefresh] = useState(0);
+  const [loadedHostId, setLoadedHostId] = useState<string | null>(null);
 
   const refreshAgentProfiles = useCallback(async () => {
     try {
@@ -80,11 +86,19 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
 
   useEffect(() => {
     let active = true;
+    setProjects([]);
+    setAgentProfiles([]);
+    setProfilesSupported(null);
+    setError(null);
+    setLoadedHostId(null);
 
     void paseo.projects
       .list()
       .then((result) => {
-        if (active) setProjects(result.projects);
+        if (active) {
+          setProjects(result.projects);
+          setLoadedHostId(hostId ?? null);
+        }
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause));
@@ -94,13 +108,13 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
     return () => {
       active = false;
     };
-  }, [paseo, refreshAgentProfiles]);
+  }, [hostId, paseo, refreshAgentProfiles]);
 
   useEffect(() => {
     let active = true;
+    setWorkspaces([]);
 
-    if (!projectId) {
-      setWorkspaces([]);
+    if (!projectId && !allProjects) {
       return () => {
         active = false;
       };
@@ -111,7 +125,7 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
       let cursor: string | undefined;
       do {
         const result = await paseo.workspaces.list({
-          filter: { projectId },
+          ...(projectId && !allProjects ? { filter: { projectId } } : {}),
           page: { limit: 200, ...(cursor ? { cursor } : {}) },
         });
         entries.push(...result.entries);
@@ -125,7 +139,7 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
     return () => {
       active = false;
     };
-  }, [paseo, projectId, workspaceRefresh]);
+  }, [paseo, projectId, allProjects, workspaceRefresh]);
 
   const workspaceIds = useMemo(() => new Set(workspaces.map((workspace) => workspace.id)), [workspaces]);
   const workspaceKey = useMemo(() => [...workspaceIds].sort().join("\u0000"), [workspaceIds]);
@@ -133,16 +147,16 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
   useEffect(() => {
     let active = true;
     let release: (() => void) | undefined;
+    setAgents([]);
 
-    if (!projectId) {
-      setAgents([]);
+    if (!projectId && !allProjects) {
       return () => {
         active = false;
       };
     }
 
     const belongsHere = (agent: AgentSummary) =>
-      isAgentForBoard(agent, boardId) || isAgentForProject(agent, workspaceIds);
+      allProjects || isAgentForBoard(agent, boardId) || isAgentForProject(agent, workspaceIds);
     const unsubscribe = paseo.agents.subscribe((update) => {
       if (!active) return;
 
@@ -185,7 +199,7 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
       unsubscribe();
       void release?.();
     };
-  }, [paseo, projectId, boardId, workspaceKey]);
+  }, [paseo, projectId, boardId, allProjects, workspaceKey]);
 
   return {
     projects,
@@ -193,6 +207,7 @@ export function usePaseoDirectory(projectId: string | null, boardId: string | nu
     agentProfiles,
     profilesSupported,
     agents,
+    loadedHostId,
     error,
     refreshAgentProfiles,
     refreshWorkspaces,

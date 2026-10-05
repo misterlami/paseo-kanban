@@ -1,7 +1,7 @@
 {
   "name": "paseo-kanban",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "files": [
     "paseo-plugin.json",
     "index.client.tsx",
@@ -9,8 +9,10 @@
     "client/",
     "shared/model.ts",
     "shared/agentProfiles.ts",
+    "shared/automation.ts",
     "shared/cardAttachments.ts",
     "shared/operations.ts",
+    "shared/persistence.ts",
     "shared/runState.ts",
     "shared/settings.ts"
   ],

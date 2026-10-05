@@ -1,5 +1,7 @@
 import { defineSettings } from "@getpaseo/plugin";
 import {
+  AUTOMATION_SETTINGS_VERSION,
+  AutomationSettingsSchema,
   BOARD_DATA_VERSION,
   BoardDataSchema,
   DISPLAY_SETTINGS_VERSION,
@@ -12,11 +14,16 @@ function unsupported(name: string, fromVersion: number): never {
 
 export function migrateBoardData(values: unknown, fromVersion: number): unknown {
   if (fromVersion === BOARD_DATA_VERSION) return values;
-  if ((fromVersion === 1 || fromVersion === 2) && values && typeof values === "object") {
-    const data = values as { runs?: unknown[] } & Record<string, unknown>;
+  if (
+    (fromVersion === 1 || fromVersion === 2 || fromVersion === 3 || fromVersion === 4) &&
+    values &&
+    typeof values === "object"
+  ) {
+    const data = values as { claims?: unknown[]; runs?: unknown[] } & Record<string, unknown>;
     return {
       ...data,
       version: BOARD_DATA_VERSION,
+      claims: fromVersion < 4 ? [] : data.claims ?? [],
       runs: (data.runs ?? []).map((run) =>
         run && typeof run === "object"
           ? {
@@ -24,8 +31,10 @@ export function migrateBoardData(values: unknown, fromVersion: number): unknown 
               ...(fromVersion === 1
                 ? { agentProfileId: null, agentProfileName: null }
                 : {}),
-              workspaceName: null,
-              branchName: null,
+              ...(fromVersion <= 2
+                ? { workspaceName: null, branchName: null }
+                : {}),
+              scheduledLocalDate: null,
             }
           : run,
       ),
@@ -36,6 +45,9 @@ export function migrateBoardData(values: unknown, fromVersion: number): unknown 
 
 export function migrateDisplaySettings(values: unknown, fromVersion: number): unknown {
   if (fromVersion === DISPLAY_SETTINGS_VERSION) return values;
+  if (fromVersion === 1 && values && typeof values === "object") {
+    return { ...values, version: DISPLAY_SETTINGS_VERSION, view: "project" };
+  }
   return unsupported("display", fromVersion);
 }
 
@@ -53,4 +65,11 @@ export const displaySettings = defineSettings({
   version: DISPLAY_SETTINGS_VERSION,
   schema: DisplaySettingsSchema,
   migrate: migrateDisplaySettings,
+});
+
+export const automationSettings = defineSettings({
+  id: "automation",
+  scope: "host",
+  version: AUTOMATION_SETTINGS_VERSION,
+  schema: AutomationSettingsSchema,
 });

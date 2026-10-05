@@ -4,8 +4,9 @@ import { useAgent, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { BOARD_COLUMN_LABELS, BoardDataSchema, type BoardColumn, type Run } from "../shared/model";
-import { applyBoardOperation, cardsInColumn } from "../shared/operations";
+import { BOARD_COLUMN_LABELS, type BoardColumn, type Run } from "../shared/model";
+import { cardsInColumn } from "../shared/operations";
+import { persistBoardOperations } from "../shared/persistence";
 import { runStatus } from "../shared/runState";
 import { boardDataSettings } from "../shared/settings";
 import { errorMessage } from "./errors";
@@ -144,6 +145,7 @@ function createStyles(theme: PluginAgentPanelProps["theme"], compact: boolean) {
 export function AgentCardPanel({ agentId, host, layout, navigation, theme }: PluginAgentPanelProps) {
   const settings = useSettings(boardDataSettings);
   const readBoard = useRpc(boardRpc.read);
+  const writeBoard = useRpc(boardRpc.write);
   const toast = useToast();
   const currentAgent = useAgent(agentId, (snapshot) => ({
     attentionReason: snapshot.attentionReason,
@@ -184,17 +186,13 @@ export function AgentCardPanel({ agentId, host, layout, navigation, theme }: Plu
       now: new Date().toISOString(),
     };
     try {
-      const next = BoardDataSchema.parse(applyBoardOperation(settings.values, operation));
-      if (!(await settings.save(next, settings.revision))) {
-        const fresh = await readBoard({});
-        if (fresh.status !== "ready") throw new Error(fresh.error);
-        const replayed = BoardDataSchema.parse(
-          applyBoardOperation(BoardDataSchema.parse(fresh.values), operation),
-        );
-        if (!(await settings.save(replayed, fresh.revision))) {
-          throw new Error("Board changed again while saving. Retry the action.");
-        }
-      }
+      await persistBoardOperations(
+        {
+          read: () => readBoard({}),
+          write: (revision, values) => writeBoard({ revision, values }),
+        },
+        [operation],
+      );
       toast.show(`Moved ${card.key} to ${BOARD_COLUMN_LABELS[column]}`, { variant: "success" });
     } catch (cause) {
       toast.error(errorMessage(cause));
